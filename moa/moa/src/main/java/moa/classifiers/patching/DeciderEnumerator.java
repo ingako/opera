@@ -3,7 +3,7 @@
  * into which an instance belongs, e.g. the leaf of a decision tree or the
  * specific rule which classified the instance.
  */
-package moa.tud.ke.patching;
+package moa.classifiers.patching;
 
 /**
  * A Decider is the element of a classifier that creates the final class decision.

@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package moa.tud.ke.patching;
+package moa.classifiers.patching;
 
 import com.github.javacliparser.FileOption;
 import com.github.javacliparser.FlagOption;
@@ -20,7 +20,12 @@ import java.io.ObjectOutputStream;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.Vector;
+
+import moa.capabilities.CapabilitiesHandler;
+import moa.capabilities.Capability;
+import moa.capabilities.ImmutableCapabilities;
 import moa.classifiers.AbstractClassifier;
+import moa.classifiers.MultiClassClassifier;
 import moa.options.WEKAClassOption;
 import weka.classifiers.Classifier;
 import weka.classifiers.rules.JRip;
@@ -35,8 +40,7 @@ import weka.filters.unsupervised.attribute.Remove;
  *
  * @author SKauschke
  */
-public class Patching extends AbstractClassifier {
-
+public class Patching extends AbstractClassifier implements MultiClassClassifier, CapabilitiesHandler {
     private static final long serialVersionUID = 1L;
 
     private Classifier baseClassifier;
@@ -834,4 +838,13 @@ public class Patching extends AbstractClassifier {
         }
 
     }
+
+    @Override
+    public ImmutableCapabilities defineImmutableCapabilities() {
+        if (this.getClass() == Patching.class)
+            return new ImmutableCapabilities(Capability.VIEW_STANDARD, Capability.VIEW_LITE);
+        else
+            return new ImmutableCapabilities(Capability.VIEW_STANDARD);
+    }
+
 }

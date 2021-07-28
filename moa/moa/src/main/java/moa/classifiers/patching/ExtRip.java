@@ -2,7 +2,7 @@
  *  Modified version of the original JRip source code included in WEKA.
  * 
  */
-package moa.tud.ke.patching;
+package moa.classifiers.patching;
 
 import java.io.Serializable;
 import java.util.ArrayList;

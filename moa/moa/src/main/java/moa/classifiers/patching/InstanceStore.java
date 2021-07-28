@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package moa.tud.ke.patching;
+package moa.classifiers.patching;
 
 import java.util.Iterator;
 import java.util.LinkedList;
