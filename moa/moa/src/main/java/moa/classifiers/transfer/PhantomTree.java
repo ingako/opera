@@ -13,15 +13,28 @@ import moa.classifiers.core.attributeclassobservers.GaussianNumericAttributeClas
 import moa.classifiers.core.attributeclassobservers.NominalAttributeClassObserver;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
 import moa.classifiers.patching.Patching;
+import moa.classifiers.trees.HoeffdingTree;
 import moa.core.AutoExpandVector;
 import moa.core.DoubleVector;
 import moa.core.Measurement;
 import moa.options.ClassOption;
 import com.yahoo.labs.samoa.instances.Instance;
+import moa.recommender.rc.utils.Hash;
 
-public class PhantomTree extends AbstractClassifier implements MultiClassClassifier, CapabilitiesHandler {
+import java.util.ArrayDeque;
+import java.util.HashSet;
+
+public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, CapabilitiesHandler {
 
     private static final long serialVersionUID = 1L;
+
+    public IntOption obsPeriodOption = new IntOption("obsPeriod", 'o',
+            "The number of instances to observe before growing phantom branches.",
+            10000, 0, Integer.MAX_VALUE);
+
+    public IntOption numPhantomBranchOption = new IntOption("numPhantomBranch", 'p',
+            "The number of phantom branches to grow.",
+            9, 1, Integer.MAX_VALUE);
 
     public IntOption gracePeriodOption = new IntOption("gracePeriod", 'g',
             "The number of instances to observe between model changes.",
@@ -40,7 +53,110 @@ public class PhantomTree extends AbstractClassifier implements MultiClassClassif
 
     protected AutoExpandVector<AttributeClassObserver> attributeObservers;
 
-    protected double weightSeenAtLastSplit;
+    //
+    ArrayDeque<Instance> instanceStore;
+
+    class PhantomBranch {
+        SplitNode leaf;
+        HashSet<String> usedFeatureValuePairs;
+        ArrayDeque<Instance> reachedInstances;
+
+        public PhantomBranch(SplitNode leaf, HashSet<String> branchDecisions) {
+            this.leaf = leaf;
+            this.usedFeatureValuePairs = branchDecisions;
+            reachedInstances = new ArrayDeque<>();
+        }
+    }
+
+    public void growPhantomBranch() {
+        addInstancesToLeaves(this.instanceStore);
+        ArrayDeque<SplitNode> nodes = new ArrayDeque<>();
+        ArrayDeque<HashSet<String>> branchDecisions = new ArrayDeque<>();
+        ArrayDeque<PhantomBranch> phantomBranches = new ArrayDeque<>();
+        nodes.push((SplitNode) this.treeRoot);
+        branchDecisions.push(new HashSet<>());
+
+        while (!nodes.isEmpty()) {
+            SplitNode curNode = nodes.pop();
+
+            if (curNode.isLeaf()) {
+                phantomBranches.push(new PhantomBranch(curNode, branchDecisions.pop()));
+
+            } else {
+                HashSet<String> branchDecision = branchDecisions.pop();
+                branchDecision.add(curNode.getSplitTest().getAttIndex() + "#" + curNode.getSplitTest().getAttValue());
+
+                for (int j = 0; j < curNode.numChildren(); j++) {
+                    nodes.push((SplitNode) curNode.getChild(j));
+                    branchDecisions.push((HashSet<String>) branchDecision.clone());
+                }
+            }
+        }
+
+        ArrayDeque<PhantomBranch> topBranches = new ArrayDeque<>();
+        for (int i = 0; i < numPhantomBranchOption.getValue(); i++) {
+            topBranches.push(phantomSplit(phantomBranches));
+        }
+    }
+
+    private void addInstancesToLeaves(ArrayDeque<Instance> instanceStore) {
+        for (Instance inst : instanceStore) {
+            filter((SplitNode) this.treeRoot, inst);
+        }
+    }
+
+    private void filter(SplitNode node, Instance inst) {
+        int childIndex = node.instanceChildIndex(inst);
+        if (childIndex >= 0) {
+            Node child = node.getChild(childIndex);
+            if (child == null) {
+                node.instanceStore.push(inst);
+            } else {
+                filter(node, inst);
+            }
+        }
+    }
+
+    private PhantomBranch phantomSplit(ArrayDeque<PhantomBranch> phantomBranches) {
+        PhantomBranch bestPhantomBranch = null;
+        for (PhantomBranch phantomBranch : phantomBranches) {
+
+        }
+        return bestPhantomBranch;
+    }
+
+    public String printTree() {
+        if (this.treeRoot == null) {
+            System.exit(1);
+        }
+
+        ArrayDeque<SplitNode> nodes = new ArrayDeque<>();
+        nodes.push((SplitNode) this.treeRoot);
+        StringBuilder sb = new StringBuilder();
+
+        while (!nodes.isEmpty()) {
+            int size = nodes.size();
+            for (int i = 0; i < size; i++) {
+                SplitNode curNode = nodes.pop();
+
+                if (curNode.isLeaf()) {
+                    int labelIndex = this.observedClassDistribution.maxIndex();
+                    sb.append("[label]" + labelIndex + " ");
+
+                } else {
+                    int attIndex = curNode.getSplitTest().getAttIndex();
+                    int attValue = curNode.getSplitTest().getAttValue();
+                    sb.append("[" + attIndex  + "]" + attValue + " ");
+
+                    for (int j = 0; j < curNode.numChildren(); j++) {
+                        nodes.push((SplitNode) curNode.getChild(j));
+                    }
+                }
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
+    }
 
     public boolean isRandomizable() {
         return false;
@@ -51,29 +167,15 @@ public class PhantomTree extends AbstractClassifier implements MultiClassClassif
         this.bestSplit = null;
         this.observedClassDistribution = new DoubleVector();
         this.attributeObservers = new AutoExpandVector<AttributeClassObserver>();
-        this.weightSeenAtLastSplit = 0.0;
     }
 
     @Override
     public void trainOnInstanceImpl(Instance inst) {
-        this.observedClassDistribution.addToValue((int) inst.classValue(), inst
-                .weight());
-        for (int i = 0; i < inst.numAttributes() - 1; i++) {
-            int instAttIndex = modelAttIndexToInstanceAttIndex(i, inst);
-            AttributeClassObserver obs = this.attributeObservers.get(i);
-            if (obs == null) {
-                obs = inst.attribute(instAttIndex).isNominal() ?
-                        newNominalClassObserver() : newNumericClassObserver();
-                this.attributeObservers.set(i, obs);
-            }
-            obs.observeAttributeClass(inst.value(instAttIndex), (int) inst
-                    .classValue(), inst.weight());
-        }
-        if (this.trainingWeightSeenByModel - this.weightSeenAtLastSplit >=
-                this.gracePeriodOption.getValue()) {
-            this.bestSplit = findBestSplit((SplitCriterion)
-                    getPreparedClassOption(this.splitCriterionOption));
-            this.weightSeenAtLastSplit = this.trainingWeightSeenByModel;
+        super.trainOnInstanceImpl(inst);
+        instanceStore.push(inst);
+
+        if (this.trainingWeightSeenByModel > obsPeriodOption.getValue()) {
+            growPhantomBranch();
         }
     }
 

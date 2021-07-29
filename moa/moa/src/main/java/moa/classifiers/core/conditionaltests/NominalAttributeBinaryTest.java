@@ -69,4 +69,12 @@ public class NominalAttributeBinaryTest extends InstanceConditionalBinaryTest {
     public int[] getAttsTestDependsOn() {
         return new int[]{this.attIndex};
     }
+
+    public int getAttIndex() {
+        return this.attIndex;
+    }
+
+    public int getAttValue() {
+        return this.attValue;
+    }
 }

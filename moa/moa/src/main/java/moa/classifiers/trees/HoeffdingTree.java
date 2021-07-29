@@ -19,12 +19,8 @@
  */
 package moa.classifiers.trees;
 
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+
 import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
@@ -256,6 +252,8 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
     public static class SplitNode extends Node {
 
         private static final long serialVersionUID = 1L;
+
+        public ArrayDeque<Instance> instanceStore = new ArrayDeque<>();
 
         protected InstanceConditionalTest splitTest;
 

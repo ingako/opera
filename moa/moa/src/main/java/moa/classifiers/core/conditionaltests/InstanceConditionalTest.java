@@ -72,4 +72,7 @@ public abstract class InstanceConditionalTest extends AbstractMOAObject {
      * @return  an array with the attributes that the test depends on
      */
     public abstract int[] getAttsTestDependsOn();
+
+    public abstract int getAttIndex();
+    public abstract int getAttValue();
 }
