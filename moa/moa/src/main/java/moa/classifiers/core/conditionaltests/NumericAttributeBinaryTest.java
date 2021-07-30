@@ -88,4 +88,15 @@ public class NumericAttributeBinaryTest extends InstanceConditionalBinaryTest {
     public double getSplitValue() {
         return this.attValue;
     }
+
+
+    @Override
+    public int getAttributeIndex() {
+        return this.attIndex;
+    }
+
+    @Override
+    public double getAttributeValue() {
+        return this.attValue;
+    }
 }

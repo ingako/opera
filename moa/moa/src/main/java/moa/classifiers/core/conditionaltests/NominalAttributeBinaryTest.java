@@ -70,11 +70,13 @@ public class NominalAttributeBinaryTest extends InstanceConditionalBinaryTest {
         return new int[]{this.attIndex};
     }
 
-    public int getAttIndex() {
+    @Override
+    public int getAttributeIndex() {
         return this.attIndex;
     }
 
-    public int getAttValue() {
+    @Override
+    public double getAttributeValue() {
         return this.attValue;
     }
 }

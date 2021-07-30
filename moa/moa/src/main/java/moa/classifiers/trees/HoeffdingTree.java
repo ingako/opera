@@ -182,6 +182,8 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
 
         private static final long serialVersionUID = 1L;
 
+        public ArrayDeque<Instance> instanceStore = new ArrayDeque<>();
+
         protected DoubleVector observedClassDistribution;
 
         public Node(double[] classObservations) {
@@ -252,8 +254,6 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
     public static class SplitNode extends Node {
 
         private static final long serialVersionUID = 1L;
-
-        public ArrayDeque<Instance> instanceStore = new ArrayDeque<>();
 
         protected InstanceConditionalTest splitTest;
 

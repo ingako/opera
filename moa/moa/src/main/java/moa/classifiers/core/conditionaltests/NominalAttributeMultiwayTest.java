@@ -67,13 +67,4 @@ public class NominalAttributeMultiwayTest extends InstanceConditionalTest {
     public int[] getAttsTestDependsOn() {
         return new int[]{this.attIndex};
     }
-
-    public int getAttIndex() {
-        return this.attIndex;
-    }
-
-    public int getAttValue() {
-        // TODO
-        return -1;
-    }
 }
