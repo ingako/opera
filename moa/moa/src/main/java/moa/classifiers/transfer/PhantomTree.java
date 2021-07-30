@@ -2,6 +2,7 @@ package moa.classifiers.transfer;
 
 import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.IntOption;
+import com.yahoo.labs.samoa.instances.Attribute;
 import moa.capabilities.CapabilitiesHandler;
 import moa.capabilities.Capability;
 import moa.capabilities.ImmutableCapabilities;
@@ -13,6 +14,7 @@ import moa.classifiers.core.attributeclassobservers.GaussianNumericAttributeClas
 import moa.classifiers.core.attributeclassobservers.NominalAttributeClassObserver;
 import moa.classifiers.core.conditionaltests.InstanceConditionalBinaryTest;
 import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
+import moa.classifiers.core.conditionaltests.NominalAttributeBinaryTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
 import moa.classifiers.patching.Patching;
 import moa.classifiers.trees.HoeffdingTree;
@@ -21,7 +23,9 @@ import moa.core.DoubleVector;
 import com.yahoo.labs.samoa.instances.Instance;
 
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 
 public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, CapabilitiesHandler {
 
@@ -39,12 +43,12 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     class PhantomBranch {
         Node leaf;
-        HashSet<String> usedFeatureValuePairs;
+        HashSet<Integer> usedNominalAttributes;
         ArrayDeque<Instance> reachedInstances;
 
-        public PhantomBranch(Node leaf, HashSet<String> branchDecisions) {
+        public PhantomBranch(Node leaf, HashSet<Integer> usedNominalAttributes) {
             this.leaf = leaf;
-            this.usedFeatureValuePairs = branchDecisions;
+            this.usedNominalAttributes = usedNominalAttributes;
             reachedInstances = new ArrayDeque<>();
         }
     }
@@ -61,42 +65,63 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         return phantomBranches;
     }
 
+    private PhantomBranch phantomSplit(ArrayDeque<PhantomBranch> phantomBranches) {
+        PhantomBranch bestPhantomBranch = null;
+        // ArrayDeque<> splitCandidates = new ArrayDeque<>();
+        // for (PhantomBranch phantomBranch : phantomBranches) {
+        //     for (Instance inst : phantomBranch.reachedInstances) {
+        //         for (int i = 0; i < inst.numAttributes(); i++) {
+        //             for (int j = 0; j < inst.numAttributes(); j++) {
+        //                 Attribute att = inst.inputAttribute(j);
+        //                 if (att.isNumeric()) continue;
+
+        //                 if (phantomBranch.usedAttributeValues.get(i).contains(j)) {
+        //                     continue;
+        //                 }
+
+        //                 List<String> values= att.getAttributeValues();
+        //                 for (int k = 0; k < att.numValues(); j++) {
+
+        //                 }
+        //             }
+
+        //         }
+        //     }
+        // }
+
+        return bestPhantomBranch;
+    }
+
     private ArrayDeque<PhantomBranch> initPhantomBranches() {
         ArrayDeque<Node> nodes = new ArrayDeque<>();
-        ArrayDeque<HashSet<String>> branchDecisions = new ArrayDeque<>();
+        ArrayDeque<HashSet<Integer>> usedNominalAttributes = new ArrayDeque<>();
         ArrayDeque<PhantomBranch> phantomBranches = new ArrayDeque<>();
         nodes.push(super.treeRoot);
-        branchDecisions.push(new HashSet<>());
+        usedNominalAttributes.push(new HashSet<>());
 
         while (!nodes.isEmpty()) {
             Node curNode = nodes.pop();
 
             if (curNode instanceof LearningNode) {
-                phantomBranches.push(new PhantomBranch(curNode, branchDecisions.pop()));
+                phantomBranches.push(new PhantomBranch(curNode, usedNominalAttributes.pop()));
 
             } else {
-                HashSet<String> branchDecision = branchDecisions.pop();
+                HashSet<Integer> usedNominalAttributeSet = usedNominalAttributes.pop();
 
                 SplitNode splitNode = (SplitNode) curNode;
                 InstanceConditionalTest condition = splitNode.getSplitTest();
-                branchDecision.add(condition.getAttributeIndex() + "#" + condition.getAttributeValue());
+                if (condition instanceof NominalAttributeBinaryTest) {
+                    usedNominalAttributeSet.add(condition.getAttributeIndex());
+                }
 
                 for (int j = 0; j < splitNode.numChildren(); j++) {
                     nodes.push(splitNode.getChild(j));
-                    branchDecisions.push((HashSet<String>) branchDecision.clone());
+                    usedNominalAttributes.push((HashSet<Integer>) usedNominalAttributeSet.clone());
                 }
             }
         }
 
         return phantomBranches;
-    }
-
-    private PhantomBranch phantomSplit(ArrayDeque<PhantomBranch> phantomBranches) {
-        PhantomBranch bestPhantomBranch = null;
-        for (PhantomBranch phantomBranch : phantomBranches) {
-
-        }
-        return bestPhantomBranch;
     }
 
     private void addInstancesToLeaves(ArrayDeque<Instance> instanceStore) {
@@ -117,8 +142,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
     }
 
     public void printPhantomBranches(ArrayDeque<PhantomBranch> phantomBranches) {
+        System.out.println("Phantom Branches:");
         for (PhantomBranch pb : phantomBranches) {
-            System.out.println(pb.usedFeatureValuePairs);
+            System.out.println(pb.usedNominalAttributes);
         }
     }
 
@@ -126,6 +152,8 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         if (super.treeRoot == null) {
             System.exit(1);
         }
+
+        System.out.println("Print Tree");
 
         ArrayDeque<Node> nodes = new ArrayDeque<>();
         nodes.push(super.treeRoot);
@@ -165,9 +193,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         }
         System.out.println(sb.toString());
 
-        // StringBuilder description = new StringBuilder();
-        // this.treeRoot.describeSubtree(this, description, 4);
-        // System.out.println("description:" + description.toString());
+        StringBuilder description = new StringBuilder();
+        this.treeRoot.describeSubtree(this, description, 4);
+        System.out.println("description:" + description.toString());
     }
 
     public boolean isRandomizable() {
@@ -176,6 +204,8 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     @Override
     public void resetLearningImpl() {
+        // Force majority count and binary splits
+        this.leafpredictionOption.setChosenLabel("MC");
         super.resetLearningImpl();
         this.binarySplitsOption.setValue(true);
     }
@@ -185,9 +215,11 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         if (this.trainingWeightSeenByModel < obsPeriodOption.getValue()) {
             super.trainOnInstanceImpl(inst);
             instanceStore.push(inst);
+
         } else if (this.trainingWeightSeenByModel == obsPeriodOption.getValue()) {
             ArrayDeque<PhantomBranch> phantomBranches = growPhantomBranch();
             printPhantomBranches(phantomBranches);
+
             printTree();
 
         } else {
