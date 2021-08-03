@@ -648,12 +648,13 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
     }
     
 
-    protected AttributeClassObserver newNominalClassObserver() {
+    public AttributeClassObserver newNominalClassObserver() {
         AttributeClassObserver nominalClassObserver = (AttributeClassObserver) getPreparedClassOption(this.nominalEstimatorOption);
+
         return (AttributeClassObserver) nominalClassObserver.copy();
     }
 
-    protected AttributeClassObserver newNumericClassObserver() {
+    public AttributeClassObserver newNumericClassObserver() {
         AttributeClassObserver numericClassObserver = (AttributeClassObserver) getPreparedClassOption(this.numericEstimatorOption);
         return (AttributeClassObserver) numericClassObserver.copy();
     }
