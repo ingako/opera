@@ -47,6 +47,7 @@ public class FoilInfoGainSplitCriterion extends AbstractOptionHandler implements
     @Override
     public double getMeritOfSplit(double[] preSplitDist,
             double[][] postSplitDists) {
+        // postSplitDists[class_idx][class_count]
         if (numSubsetsGreaterThanFrac(postSplitDists, this.minBranchFracOption.getValue()) < 2) {
             return Double.NEGATIVE_INFINITY;
         }

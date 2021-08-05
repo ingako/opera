@@ -162,11 +162,19 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         // merit: foil information gain
 
         double sum = 0;
+        double invalid_suggestion_count = 0;
         for (AttributeSplitSuggestion suggestion : allSplitSuggestions) {
+            if (suggestion.merit == Double.NEGATIVE_INFINITY) {
+                continue;
+            }
             if (suggestion.merit <= 0) {
                 continue;
             }
             sum += suggestion.merit;
+        }
+
+        if (invalid_suggestion_count == allSplitSuggestions.length) {
+            return null;
         }
 
         double rand = Math.random();
