@@ -23,6 +23,7 @@ import moa.core.AutoExpandVector;
 import moa.core.DoubleVector;
 import com.yahoo.labs.samoa.instances.Instance;
 import moa.core.SizeOf;
+import moa.core.Utils;
 import moa.options.ClassOption;
 import org.jfree.util.ArrayUtils;
 
@@ -49,15 +50,30 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     public static class PhantomNode extends ActiveLearningNode {
 
-        public ArrayDeque<Instance> reachedInstances;
         int depth;
-        double foil_info_gain; // TODO from parent
+        int num_positive;
+        int num_negative;
+        double foil_info_gain; // TODO handle first level calculation separately
+
+        public ArrayDeque<PhantomNode> children;
+        public InstanceConditionalTest splitTest;
 
         public PhantomNode(double[] initialClassObservations, int depth) {
             super(initialClassObservations);
             this.weightSeenAtLastSplitEvaluation = getWeightSeen();
             this.isInitialized = false;
             this.depth = depth;
+            this.num_positive = 0;
+            this.num_negative = 0;
+            this.foil_info_gain = -1;
+
+            this.children = new ArrayDeque<>();
+            this.splitTest = null;
+        }
+
+        public void learnFromInstance(Instance inst, HoeffdingTree ht) {
+            super.learnFromInstance(inst, ht);
+            this.instanceStore.offer(inst);
         }
 
         public AttributeSplitSuggestion[] getAllSplitSuggestions(SplitCriterion criterion) {
@@ -103,9 +119,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         return null;
     }
 
-    private PhantomNode phantomSplit(PhantomNode node) {
+    private PhantomNode phantomSplit(PhantomNode node, PhantomNode parent) {
 
-        // TODO skip split if phantom children already exits
+        // TODO skip split if phantom children already exit
 
         if (node.observedClassDistributionIsPure()) {
             return node;
@@ -115,77 +131,97 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         AttributeSplitSuggestion[] allSplitSuggestions = node.getAllSplitSuggestions(splitCriterion);
         Arrays.sort(allSplitSuggestions);
 
-        // TODO split by foil information gain?
-        AttributeSplitSuggestion splitDecision = getWeightedRandomPhantomChild(allSplitSuggestions);
+        // TODO make best split suggestions by foil information gain?
+        // AttributeSplitSuggestion splitDecision = getWeightedRandomPhantomChild(allSplitSuggestions);
+        AttributeSplitSuggestion splitDecision = allSplitSuggestions[-1];
         if (splitDecision.splitTest == null) {
             System.exit(1);
         }
 
-        SplitNode newSplit = newSplitNode(
-                splitDecision.splitTest,
-                node.getObservedClassDistribution(),
-                splitDecision.numSplits());
+        node.splitTest = splitDecision.splitTest;
+        // SplitNode newSplit = newSplitNode(
+        //         splitDecision.splitTest,
+        //         node.getObservedClassDistribution(),
+        //         splitDecision.numSplits());
 
-        // TODO for each candidate child, if class distribution > 30% then create child
         for (int i = 0; i < splitDecision.numSplits(); i++) {
             double[] resultingClassDistribution = splitDecision.resultingClassDistributionFromSplit(i);
-            boolean shouldStop = true;
-            for (double classDistribution : resultingClassDistribution) {
-                if (classDistribution >= 0.3) {
-                    shouldStop = false;
-                    break;
-                }
-            }
-            if (shouldStop) continue;
+
+            // boolean shouldStop = true;
+            // TODO for each candidate child, if class distribution > 30% then create child
+            // for (double classDistribution : resultingClassDistribution) {
+            //     if (classDistribution >= 0.3) {
+            //         shouldStop = false;
+            //         break;
+            //     }
+            // }
+            // if (shouldStop) continue;
 
             PhantomNode newChild = new PhantomNode(resultingClassDistribution, node.depth + 1);
-            newSplit.setChild(i, newChild);
+            // newSplit.setChild(i, newChild);
+            node.children.offer(newChild);
 
-            // TODO train the phantom children
-            for (Instance inst : node.reachedInstances) {
+            // TODO only train the selected phantom children?
+            for (Instance inst : node.instanceStore) {
                 newChild.learnFromInstance(inst, this);
             }
         }
 
-        // TODO pick a child with the highest foil information gain (by weighted selection)
-        PhantomNode selectedPhantomChild = null;
-        for (Node phantomChild : newSplit.getChildren()) {
-            // TODO compute foil information gain before weighted selection
-
+        // TODO compute foil information gain before weighted selection
+        for (Node child : node.children) {
+            PhantomNode phantomChild = (PhantomNode) child;
+            phantomChild.foil_info_gain = calcFoilInfoGain(parent, phantomChild);
         }
 
+        PhantomNode selectedPhantomChild = getWeightedRandomPhantomChild(node.children);
 
-        return phantomSplit(selectedPhantomChild);
+        return phantomSplit(selectedPhantomChild, node);
     }
 
-    private AttributeSplitSuggestion getWeightedRandomPhantomChild(AttributeSplitSuggestion[] allSplitSuggestions) {
-        // merit: foil information gain
+    private double calcFoilInfoGain(PhantomNode parent, PhantomNode child) {
+        return getNumMutualPositives(parent, child)
+                * (child.num_positive / (child.num_positive + child.num_negative)
+                - parent.num_positive / (parent.num_positive + parent.num_negative));
+    }
 
-        double sum = 0;
-        double invalid_suggestion_count = 0;
-        for (AttributeSplitSuggestion suggestion : allSplitSuggestions) {
-            if (suggestion.merit == Double.NEGATIVE_INFINITY) {
-                continue;
+   private double getNumMutualPositives(PhantomNode parent, PhantomNode child) {
+        int count = 0;
+        for (Instance inst : child.instanceStore) {
+            int trueClass = (int) inst.classValue();
+            int parentPrediction = Utils.maxIndex(parent.getClassVotes(inst, this));
+            int childPrediction = Utils.maxIndex(child.getClassVotes(inst, this));
+            if  (parentPrediction == trueClass && parentPrediction == childPrediction) {
+                count++;
             }
-            if (suggestion.merit <= 0) {
-                continue;
-            }
-            sum += suggestion.merit;
         }
 
-        if (invalid_suggestion_count == allSplitSuggestions.length) {
+        return count;
+   }
+
+    private PhantomNode getWeightedRandomPhantomChild(ArrayDeque<PhantomNode> phantomChildren) {
+        double sum = 0;
+        int invalid_child_count = 0;
+        for (PhantomNode child : phantomChildren) {
+            if (child.foil_info_gain <= 0) {
+                invalid_child_count++;
+                continue;
+            }
+            sum += child.foil_info_gain;
+        }
+
+        if (invalid_child_count == phantomChildren.size()) {
             return null;
         }
 
         double rand = Math.random();
         double partial_sum = 0;
-        for (AttributeSplitSuggestion suggestion : allSplitSuggestions) {
-            if (suggestion.merit <= 0) {
+        for (PhantomNode child : phantomChildren) {
+            if (child.foil_info_gain <= 0) {
                 continue;
             }
-            partial_sum += (suggestion.merit / sum);
+            partial_sum += (child.foil_info_gain / sum);
             if (partial_sum > rand) {
-                return suggestion;
+                return child;
             }
         }
 
