@@ -16,6 +16,7 @@ import moa.classifiers.core.attributeclassobservers.NullAttributeClassObserver;
 import moa.classifiers.core.conditionaltests.InstanceConditionalBinaryTest;
 import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
 import moa.classifiers.core.conditionaltests.NominalAttributeBinaryTest;
+import moa.classifiers.core.conditionaltests.NumericAttributeBinaryTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
 import moa.classifiers.patching.Patching;
 import moa.classifiers.trees.HoeffdingTree;
@@ -41,24 +42,23 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             "The number of phantom branches to grow.",
             9, 1, Integer.MAX_VALUE);
 
-    public ClassOption phantomSplitCriterionOption = new ClassOption("splitCriterion",
-            'y', "Split criterion to use.", SplitCriterion.class,
-            "FoilInfoGainSplitCriterion");
-
-
     ArrayDeque<Instance> instanceStore = new ArrayDeque<>();
 
     public static class PhantomNode extends ActiveLearningNode {
 
         int depth;
-        int num_positive;
-        int num_negative;
+        double num_positive;
+        double num_negative;
         double foil_info_gain;
+        // public boolean isPhantomLeaf;
 
         public AutoExpandVector<PhantomNode> children;
         public InstanceConditionalTest splitTest;
+        public StringBuilder branchStringBuilder;
 
-        public PhantomNode(double[] initialClassObservations, int depth) {
+        public PhantomNode(double[] initialClassObservations,
+                           int depth,
+                           StringBuilder branchStringBuilder) {
             super(initialClassObservations);
             // this.weightSeenAtLastSplitEvaluation = getWeightSeen();
             // this.isInitialized = false;
@@ -66,9 +66,11 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             this.num_positive = 0;
             this.num_negative = 0;
             this.foil_info_gain = -1;
+            // this.isPhantomLeaf = false;
 
             this.children = new AutoExpandVector<>();
             this.splitTest = null;
+            this.branchStringBuilder = branchStringBuilder;
         }
 
         private void passInstanceToChild(Instance inst, HoeffdingTree ht) {
@@ -80,7 +82,6 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             child.instanceStore.offer(inst);
             child.learnFromInstance(inst, ht);
         }
-
 
         public AttributeSplitSuggestion[] getAllSplitSuggestions(SplitCriterion criterion) {
             List<AttributeSplitSuggestion> bestSuggestions = new LinkedList<AttributeSplitSuggestion>();
@@ -101,6 +102,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             }
             return bestSuggestions.toArray(new AttributeSplitSuggestion[bestSuggestions.size()]);
         }
+
     }
 
     private ArrayDeque<PhantomNode> growPhantomBranches() {
@@ -154,8 +156,11 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
     }
 
     private void phantomSplit(PhantomNode node) {
-        SplitCriterion splitCriterion = (SplitCriterion) getPreparedClassOption(this.phantomSplitCriterionOption);
+        SplitCriterion splitCriterion = (SplitCriterion) getPreparedClassOption(this.splitCriterionOption);
         AttributeSplitSuggestion[] allSplitSuggestions = node.getAllSplitSuggestions(splitCriterion);
+        if (allSplitSuggestions.length == 0) {
+            return;
+        }
         Arrays.sort(allSplitSuggestions);
 
         // TODO make best split suggestions by foil information gain?
@@ -179,8 +184,20 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             // }
             // if (shouldStop) continue;
 
-            PhantomNode newChild = new PhantomNode(resultingClassDistribution, node.depth + 1);
-            // newSplit.setChild(i, newChild);
+            PhantomNode newChild = new PhantomNode(
+                    resultingClassDistribution,
+                    node.depth + 1,
+                    new StringBuilder(node.branchStringBuilder));
+
+            InstanceConditionalTest condition = node.splitTest;
+            if (condition instanceof NominalAttributeBinaryTest) {
+                newChild.branchStringBuilder.append(condition.getAttributeIndex());
+            } else if (condition instanceof NumericAttributeBinaryTest) {
+                newChild.branchStringBuilder.append(condition.getAttributeValue());
+            } else {
+                System.out.print("Multiway test is not supported.");
+                System.exit(1);
+            }
             node.children.add(newChild);
 
             // TODO only train the selected phantom children?
@@ -242,35 +259,44 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     private ArrayDeque<PhantomNode> initPhantomBranches() {
         ArrayDeque<Node> nodes = new ArrayDeque<>();
-        ArrayDeque<HashSet<Integer>> usedNominalAttributes = new ArrayDeque<>();
         ArrayDeque<PhantomNode> phantomRoots = new ArrayDeque<>();
+        ArrayDeque<Integer> depths = new ArrayDeque<>();
+        ArrayDeque<StringBuilder> branchStringBuilders = new ArrayDeque<>();
         nodes.offer(super.treeRoot);
-        usedNominalAttributes.offer(new HashSet<>());
-        int depth = 0;
+        depths.offer(1);
+        branchStringBuilders.offer(new StringBuilder());
 
-        // TODO remove redundancy
         while (!nodes.isEmpty()) {
-            Node curNode = nodes.pop();
-            depth += 1;
+            Node curNode = nodes.poll();
+            StringBuilder branchStringBuilder = branchStringBuilders.poll();
+            int depth = depths.poll();
 
             if (curNode instanceof LearningNode) {
+                branchStringBuilder.append(curNode.getClass());
                 phantomRoots.offer(
                         new PhantomNode(
                                 curNode.getObservedClassDistribution(),
-                                depth));
+                                depth + 1,
+                                branchStringBuilder));
 
             } else {
-                HashSet<Integer> usedNominalAttributeSet = usedNominalAttributes.pop();
+                branchStringBuilder.append("|");
 
                 SplitNode splitNode = (SplitNode) curNode;
                 InstanceConditionalTest condition = splitNode.getSplitTest();
                 if (condition instanceof NominalAttributeBinaryTest) {
-                    usedNominalAttributeSet.add(condition.getAttributeIndex());
+                    branchStringBuilder.append(condition.getAttributeIndex());
+                } else if (condition instanceof NumericAttributeBinaryTest) {
+                    branchStringBuilder.append(condition.getAttributeValue());
+                } else {
+                    System.out.print("Multiway test is not supported.");
+                    System.exit(1);
                 }
 
                 for (int j = 0; j < splitNode.numChildren(); j++) {
                     nodes.offer(splitNode.getChild(j));
-                    usedNominalAttributes.offer((HashSet<Integer>) usedNominalAttributeSet.clone());
+                    branchStringBuilders.offer(new StringBuilder(branchStringBuilder));
+                    depths.offer(depth + 1);
                 }
             }
         }
@@ -297,9 +323,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     public void printPhantomBranches(ArrayDeque<PhantomNode> phantomLeaves) {
         System.out.println("Phantom Nodes:");
-        for (PhantomNode pn: phantomLeaves) {
-            // TODO
-            // System.out.println();
+        for (PhantomNode pl: phantomLeaves) {
+            System.out.println("Depth= " + pl.depth);
+            System.out.println(pl.branchStringBuilder.toString());
         }
     }
 
@@ -317,7 +343,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         while (!nodes.isEmpty()) {
             int size = nodes.size();
             for (int i = 0; i < size; i++) {
-                Node curNode = nodes.pop();
+                Node curNode = nodes.poll();
 
                 if (curNode instanceof LearningNode) {
                     double[] observations = curNode.getObservedClassDistribution();
@@ -340,18 +366,13 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                     sb.append("[" + attIndex + "]" + attValue + " ");
 
                     for (int j = 0; j < splitNode.numChildren(); j++) {
-                        nodes.offer((Node) splitNode.getChild(j));
+                        nodes.offer(splitNode.getChild(j));
                     }
                 }
             }
             sb.append("\n");
         }
         System.out.println(sb.toString());
-
-        System.out.println("MOA description:");
-        StringBuilder description = new StringBuilder();
-        this.treeRoot.describeSubtree(this, description, 4);
-        System.out.println(description.toString());
     }
 
     public boolean isRandomizable() {
@@ -360,9 +381,8 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     @Override
     public void resetLearningImpl() {
-        // Force majority count and binary splits
-        this.leafpredictionOption.setChosenLabel("MC");
         super.resetLearningImpl();
+        this.leafpredictionOption.setChosenLabel("MC");
         this.binarySplitsOption.setValue(true);
     }
 
@@ -376,7 +396,11 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             ArrayDeque<PhantomNode> phantomNodes = growPhantomBranches();
             printPhantomBranches(phantomNodes);
 
-            printTree();
+            // printTree();
+            System.out.println("MOA description:");
+            StringBuilder description = new StringBuilder();
+            this.treeRoot.describeSubtree(this, description, 4);
+            System.out.println(description.toString());
         }
     }
 
