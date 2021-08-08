@@ -184,7 +184,7 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
 
         public ArrayDeque<Instance> instanceStore = new ArrayDeque<>();
 
-        protected DoubleVector observedClassDistribution;
+        public DoubleVector observedClassDistribution;
 
         public Node(double[] classObservations) {
             this.observedClassDistribution = new DoubleVector(classObservations);
@@ -416,7 +416,7 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
 
         protected double weightSeenAtLastSplitEvaluation;
 
-        protected AutoExpandVector<AttributeClassObserver> attributeObservers = new AutoExpandVector<AttributeClassObserver>();
+        public AutoExpandVector<AttributeClassObserver> attributeObservers = new AutoExpandVector<AttributeClassObserver>();
         
         protected boolean isInitialized;
 
