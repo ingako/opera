@@ -65,16 +65,14 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                 String branchPrefix,
                 ArrayDeque<Instance> instanceStore) {
 
-            this(initialClassObservations, depth);
+            this(depth);
             this.instanceStore = instanceStore;
             this.branchPrefix = branchPrefix;
+            this.observedClassDistribution = new DoubleVector(initialClassObservations);
         }
 
-        public PhantomNode(
-                double[] initialClassObservations,
-                int depth) {
-
-            super(initialClassObservations);
+        public PhantomNode(int depth) {
+            super(new double[0]);
             this.depth = depth;
             this.foil_info_gain = -1;
 
@@ -198,14 +196,10 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         }
         Arrays.sort(allSplitSuggestions);
 
-        // TODO make best split suggestions by foil information gain?
-        // AttributeSplitSuggestion splitDecision = getWeightedRandomPhantomChild(allSplitSuggestions);
         for (AttributeSplitSuggestion splitDecision : allSplitSuggestions) {
-            // AttributeSplitSuggestion splitDecision = allSplitSuggestions[allSplitSuggestions.length - 1];
             if (splitDecision.splitTest == null) {
                 throw new NullPointerException("PhantomSplit splitTest is null.");
             }
-            // node.splitTest = splitDecision.splitTest;
 
             InstanceConditionalTest curSplitTest = splitDecision.splitTest;
             AutoExpandVector<PhantomNode> newChildren = new AutoExpandVector<>();
@@ -223,7 +217,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                 // if (shouldStop) continue;
 
                 PhantomNode newChild = new PhantomNode(
-                        resultingClassDistribution,
+                        // resultingClassDistribution,
                         node.depth + 1);
 
                 newChildren.add(newChild);
@@ -248,7 +242,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
     private double calcFoilInfoGain(PhantomNode parent, PhantomNode child) {
         double child_num_positive = 0;
         double parent_num_positive = 0;
-        double count = 0;
+        // double count = 0;
         for (Instance inst : child.instanceStore) {
             int trueClass = (int) inst.classValue();
             int parentPrediction = Utils.maxIndex(parent.getClassVotes(inst, this));
@@ -256,18 +250,24 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             if  (parentPrediction == trueClass) {
                 parent_num_positive++;
             }
-            if  (childPrediction == trueClass) {
+            if (childPrediction == trueClass) {
                 child_num_positive++;
             }
-            if (parentPrediction == childPrediction) {
-                count++;
-            }
+            // if (parentPrediction == childPrediction) {
+            //     count++;
+            // }
         }
 
         double total = child.instanceStore.size();
-        double gain = total
-                * (Math.log(child_num_positive / total) / Math.log(2)
-                   - Math.log(parent_num_positive / total) / Math.log(2));
+        // double gain = child_num_positive
+        //         * (Math.log(child_num_positive / total) / Math.log(2)
+        //            - Math.log(parent_num_positive / total) / Math.log(2));
+        if (total == 0) {
+            System.out.println("here");
+
+        }
+        double gain = child_num_positive
+                * (- Math.log(child_num_positive / total) / Math.log(2));
         return gain;
     }
 
@@ -336,8 +336,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                 } else if (condition instanceof NumericAttributeBinaryTest) {
                     branchStringBuilder.append(condition.getAttributeValue());
                 } else {
-                    System.out.print("Multiway test is not supported.");
-                    System.exit(1);
+                    throw new NullPointerException("Multiway test is not supported.");
                 }
 
                 for (int j = 0; j < splitNode.numChildren(); j++) {
