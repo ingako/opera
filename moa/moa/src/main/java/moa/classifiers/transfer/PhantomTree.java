@@ -86,7 +86,6 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                 HoeffdingTree ht,
                 InstanceConditionalTest splitTest,
                 AutoExpandVector<PhantomNode> children) {
-            // int childIndex = this.splitTest.branchForInstance(inst);
             int childIndex = splitTest.branchForInstance(inst);
             if (childIndex < 0) {
                 System.exit(1);
@@ -100,7 +99,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         }
 
         public AttributeSplitSuggestion[] getAllSplitSuggestions(SplitCriterion criterion) {
-            List<AttributeSplitSuggestion> bestSuggestions = new LinkedList<AttributeSplitSuggestion>();
+            List<AttributeSplitSuggestion> bestSuggestions = new LinkedList<>();
             double[] preSplitDist = this.observedClassDistribution.getArrayCopy();
 
             for (int i = 0; i < this.attributeObservers.size(); i++) {
@@ -173,14 +172,18 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
         int childIdx = getWeightedRandomPhantomNodeIdx(node.splitChildrenPairs);
         if (childIdx == -1) {
-            throw new NullPointerException("getWeightedRandomPhantomChildIdx returns -1");
+            // throw new NullPointerException("getWeightedRandomPhantomChildIdx returns -1");
+            return node;
         }
         PhantomNode selectedPhantomChild = node.splitChildrenPairs.get(childIdx);
         InstanceConditionalTest condition = node.splitTests.get(childIdx);
         if (condition instanceof NominalAttributeBinaryTest) {
             branchStringBuilder.append(condition.getAttributeIndex());
+            System.out.println("condition: " + condition.getAttributeIndex());
         } else if (condition instanceof NumericAttributeBinaryTest) {
             branchStringBuilder.append(condition.getAttributeValue());
+        } else if (condition == null) {
+            throw new NullPointerException("splitTest is null.");
         } else {
             throw new NullPointerException("Multiway test is not supported.");
         }
@@ -203,8 +206,20 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
             InstanceConditionalTest curSplitTest = splitDecision.splitTest;
             AutoExpandVector<PhantomNode> newChildren = new AutoExpandVector<>();
+            boolean isUsedAttribute = false;
             for (int i = 0; i < splitDecision.numSplits(); i++) {
                 double[] resultingClassDistribution = splitDecision.resultingClassDistributionFromSplit(i);
+                boolean shouldSplit = false;
+                for (int j = 0; j < resultingClassDistribution.length; j++) {
+                    if (resultingClassDistribution[j] != node.getObservedClassDistribution()[j]){
+                        shouldSplit = true;
+                        break;
+                    }
+                }
+                if (!shouldSplit) {
+                    isUsedAttribute = true;
+                    break;
+                }
 
                 // boolean shouldStop = true;
                 // TODO for each candidate child, if class distribution > 30% then create child
@@ -216,26 +231,32 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                 // }
                 // if (shouldStop) continue;
 
-                PhantomNode newChild = new PhantomNode(
-                        // resultingClassDistribution,
-                        node.depth + 1);
-
-                newChildren.add(newChild);
             }
 
-            // TODO only train the selected phantom children?
-            // for each splitTest, pass instances & train
-            for (Instance inst : node.instanceStore) {
-                node.passInstanceToChild(inst, this, curSplitTest, newChildren);
-            }
+            if (!isUsedAttribute) {
+                for (int i = 0; i < splitDecision.numSplits(); i++) {
+                    PhantomNode newChild = new PhantomNode(
+                            // resultingClassDistribution,
+                            node.depth + 1);
 
-            // compute foil information gain for weighted selection
-            for (Node child : newChildren) {
-                PhantomNode phantomChild = (PhantomNode) child;
-                phantomChild.foil_info_gain = calcFoilInfoGain(node, phantomChild);
+                    newChildren.add(newChild);
+
+                    node.splitTests.add(curSplitTest);
+                    node.splitChildrenPairs.add(newChild);
+                }
+
+                // TODO only train the selected phantom children?
+                // for each splitTest, pass instances & train
+                for (Instance inst : node.instanceStore) {
+                    node.passInstanceToChild(inst, this, curSplitTest, newChildren);
+                }
+
+                // compute foil information gain for weighted selection
+                for (Node child : newChildren) {
+                    PhantomNode phantomChild = (PhantomNode) child;
+                    phantomChild.foil_info_gain = calcFoilInfoGain(node, phantomChild);
+                }
             }
-            node.splitTests.add(curSplitTest);
-            node.splitChildrenPairs.addAll(newChildren);
         }
     }
 
@@ -263,7 +284,8 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         //         * (Math.log(child_num_positive / total) / Math.log(2)
         //            - Math.log(parent_num_positive / total) / Math.log(2));
         if (total == 0) {
-            System.out.println("here");
+            System.out.println("empty instanceStore");
+            return -1;
 
         }
         double gain = child_num_positive
