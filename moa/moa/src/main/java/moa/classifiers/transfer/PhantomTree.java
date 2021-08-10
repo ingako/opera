@@ -141,6 +141,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
         ArrayDeque<PhantomNode> phantomLeaves = new ArrayDeque<>();
         for (int i = 0; i < numPhantomBranchOption.getValue(); i++) {
+            System.out.println("Start constructing branch " + i);
             int nodeIdx = getWeightedRandomPhantomNodeIdx(phantomRoots);
             if (nodeIdx == -1) {
                 throw new NullPointerException("getWeightedRandomPhantomNodeIdx returns -1");
@@ -179,9 +180,10 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         InstanceConditionalTest condition = node.splitTests.get(childIdx);
         if (condition instanceof NominalAttributeBinaryTest) {
             branchStringBuilder.append(condition.getAttributeIndex());
-            System.out.println("condition: " + condition.getAttributeIndex());
+            System.out.println("Nominal condition: " + condition.getAttributeIndex());
         } else if (condition instanceof NumericAttributeBinaryTest) {
             branchStringBuilder.append(condition.getAttributeValue());
+            System.out.println("Numerical condition: " + condition.getAttributeIndex());
         } else if (condition == null) {
             throw new NullPointerException("splitTest is null.");
         } else {
@@ -274,22 +276,16 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             if (childPrediction == trueClass) {
                 child_num_positive++;
             }
-            // if (parentPrediction == childPrediction) {
-            //     count++;
-            // }
         }
 
         double total = child.instanceStore.size();
-        // double gain = child_num_positive
-        //         * (Math.log(child_num_positive / total) / Math.log(2)
-        //            - Math.log(parent_num_positive / total) / Math.log(2));
         if (total == 0) {
             System.out.println("empty instanceStore");
             return -1;
 
         }
         double gain = child_num_positive
-                * (- Math.log(child_num_positive / total) / Math.log(2));
+                * (1 / Math.abs(Math.log(child_num_positive / total) / Math.log(2)));
         return gain;
     }
 
@@ -308,7 +304,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             return -1;
         }
 
-        double rand = Math.random();
+        double rand = this.classifierRandom.nextDouble();
         double partial_sum = 0;
         for (int i = 0; i < phantomChildren.size(); i++) {
             PhantomNode child = phantomChildren.get(i);
@@ -444,7 +440,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
     }
 
     public boolean isRandomizable() {
-        return false;
+        return true;
     }
 
     @Override
@@ -466,9 +462,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
             // printTree();
             System.out.println("MOA description:");
-            StringBuilder description = new StringBuilder();
-            this.treeRoot.describeSubtree(this, description, 4);
-            System.out.println(description.toString());
+            StringBuilder after_description = new StringBuilder();
+            this.treeRoot.describeSubtree(this, after_description, 4);
+            System.out.println(after_description.toString());
         }
     }
 
