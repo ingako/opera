@@ -169,16 +169,16 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         InstanceConditionalTest condition = node.splitTests.get(childIdx);
         if (condition instanceof NominalAttributeBinaryTest) {
             branchStringBuilder.append(condition.getAttributeIndex());
-            System.out.println("Nominal condition = "
-                    + condition.getAttributeIndex() + ":" + condition.getAttributeValue());
+            branchStringBuilder.append(",");
+            System.out.print("Nominal condition = ");
         } else if (condition instanceof NumericAttributeBinaryTest) {
-            branchStringBuilder.append(condition.getAttributeValue());
-            System.out.println("Numerical condition: " + condition.getAttributeIndex());
+            System.out.print("Numerical condition = ");
         } else if (condition == null) {
             throw new NullPointerException("splitTest is null.");
         } else {
             throw new NullPointerException("Multiway test is not supported.");
         }
+        System.out.println(condition.getAttributeIndex() + ":" + condition.getAttributeIndex());
 
         return growPhantomBranch(selectedPhantomChild, branchStringBuilder);
     }
@@ -335,7 +335,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                 phantomRoots.offer(root);
 
             } else {
-                branchStringBuilder.append("|");
+                branchStringBuilder.append(",");
 
                 SplitNode splitNode = (SplitNode) curNode;
                 InstanceConditionalTest condition = splitNode.getSplitTest();
