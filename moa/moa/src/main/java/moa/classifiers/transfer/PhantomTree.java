@@ -1,6 +1,7 @@
 package moa.classifiers.transfer;
 
 import com.github.javacliparser.FlagOption;
+import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
 import com.yahoo.labs.samoa.instances.Attribute;
 import moa.capabilities.CapabilitiesHandler;
@@ -42,9 +43,11 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             "The number of phantom branches to grow.",
             9, 1, Integer.MAX_VALUE);
 
-    // public ClassOption splitCriterionOption = new ClassOption("splitCriterion",
-    //         'd', "Split criterion to use.", SplitCriterion.class,
-    //         "PhantomSplitCriterion");
+    public FloatOption phantomFactorOption = new FloatOption(
+            "squashingDelta",
+            'i',
+            "Squashing the accuracy terms in the FOIL information formula",
+            7, 0, Integer.MAX_VALUE);
 
     ArrayDeque<Instance> instanceStore = new ArrayDeque<>();
 
@@ -129,6 +132,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         }
 
         ArrayDeque<PhantomNode> phantomLeaves = new ArrayDeque<>();
+        int min_depth = Integer.MAX_VALUE;
+        int max_depth = 0;
+        double sum_depth = 0.0;
         for (int i = 0; i < numPhantomBranchOption.getValue(); i++) {
             System.out.println("Start constructing branch " + i);
             int nodeIdx = getWeightedRandomPhantomNodeIdx(phantomRoots);
@@ -138,9 +144,16 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             PhantomNode phantomRoot = phantomRoots.get(nodeIdx);
 
             StringBuilder branchStringBuilder = new StringBuilder(phantomRoot.branchPrefix);
-            phantomLeaves.offer(growPhantomBranch(phantomRoot, branchStringBuilder));
+            PhantomNode phantomLeaf = growPhantomBranch(phantomRoot, branchStringBuilder);
+            phantomLeaves.offer(phantomLeaf);
+            min_depth = Math.min(min_depth, phantomLeaf.depth);
+            max_depth = Math.max(max_depth, phantomLeaf.depth);
+            sum_depth = sum_depth + phantomLeaf.depth;
+
             System.out.println("Phantom Branch " + i + ": " + branchStringBuilder);
         }
+
+        System.out.println("min=" + min_depth + "|max=" + max_depth + "|avg=" + sum_depth / phantomLeaves.size());
 
         return phantomLeaves;
     }
@@ -168,17 +181,17 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         PhantomNode selectedPhantomChild = node.splitChildrenPairs.get(childIdx);
         InstanceConditionalTest condition = node.splitTests.get(childIdx);
         if (condition instanceof NominalAttributeBinaryTest) {
-            branchStringBuilder.append(condition.getAttributeIndex());
-            branchStringBuilder.append(",");
-            System.out.print("Nominal condition = ");
+            branchStringBuilder.append(condition.getAttributeIndex()).append(",");
+            // System.out.print("Nominal condition = ");
         } else if (condition instanceof NumericAttributeBinaryTest) {
-            System.out.print("Numerical condition = ");
+            branchStringBuilder.append(condition.getAttributeIndex()).append(",");
+            // System.out.print("Numerical condition = ");
         } else if (condition == null) {
             throw new NullPointerException("splitTest is null.");
         } else {
             throw new NullPointerException("Multiway test is not supported.");
         }
-        System.out.println(condition.getAttributeIndex() + ":" + condition.getAttributeIndex());
+        // System.out.println(condition.getAttributeIndex() + ":" + condition.getAttributeValue());
 
         return growPhantomBranch(selectedPhantomChild, branchStringBuilder);
     }
@@ -245,39 +258,33 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
                 // compute foil information gain for weighted selection
                 for (Node child : newChildren) {
                     PhantomNode phantomChild = (PhantomNode) child;
-                    phantomChild.foil_info_gain = calcFoilInfoGain(node, phantomChild);
+                    phantomChild.foil_info_gain = calcPhantomInfoGain(phantomChild);
                 }
             }
         }
     }
 
-    private double calcFoilInfoGain(PhantomNode parent, PhantomNode child) {
+    private double calcPhantomInfoGain(PhantomNode child) {
+        double total = child.instanceStore.size();
+        if (total == 0) {
+            System.out.println("empty instanceStore");
+            return -1;
+        }
+
         double child_num_positive = 0;
-        double parent_num_positive = 0;
-        // double count = 0;
         for (Instance inst : child.instanceStore) {
             int trueClass = (int) inst.classValue();
-            int parentPrediction = Utils.maxIndex(parent.getClassVotes(inst, this));
             int childPrediction = Utils.maxIndex(child.getClassVotes(inst, this));
-            if  (parentPrediction == trueClass) {
-                parent_num_positive++;
-            }
             if (childPrediction == trueClass) {
                 child_num_positive++;
             }
         }
 
-        double total = child.instanceStore.size();
-        if (total == 0) {
-            System.out.println("empty instanceStore");
-            return -1;
-
+        double phantom_factor = - Math.log(1 - child_num_positive / total) / Math.log(2);
+        if (phantom_factor > phantomFactorOption.getValue()) {
+            phantom_factor = phantomFactorOption.getValue();
         }
-
-        double info = Math.abs(Math.log(child_num_positive / total) / Math.log(2));
-        double gain = child_num_positive * (1 / info);
-        if (gain > 2) gain = 2;
-        return gain;
+        return child_num_positive * phantom_factor;
     }
 
     private int getWeightedRandomPhantomNodeIdx(AutoExpandVector<PhantomNode> phantomChildren) {
@@ -457,6 +464,14 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             // printPhantomBranches(phantomNodes);
 
             // printTree();
+        } else if (this.trainingWeightSeenByModel == 99999) {
+            instanceStore.offer(inst);
+            System.out.println("MOA description:");
+            StringBuilder description = new StringBuilder();
+            this.treeRoot.describeSubtree(this, description, 4);
+            System.out.println(description.toString());
+        } else {
+            super.trainOnInstanceImpl(inst);
         }
     }
 
