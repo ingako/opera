@@ -22,6 +22,9 @@ package moa.tasks;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
+
+import moa.capabilities.Capability;
+import moa.capabilities.ImmutableCapabilities;
 import moa.classifiers.Classifier;
 import moa.core.Example;
 import moa.core.InstanceExample;
@@ -288,6 +291,14 @@ public class EvaluateInterleavedChunks extends ClassificationMainTask {
 			immediateResultStream.close();
 		}
 		return learningCurve;
+	}
+
+	@Override
+	public ImmutableCapabilities defineImmutableCapabilities() {
+		if (this.getClass() == EvaluateInterleavedChunks.class)
+			return new ImmutableCapabilities(Capability.VIEW_STANDARD, Capability.VIEW_LITE);
+		else
+			return new ImmutableCapabilities(Capability.VIEW_STANDARD);
 	}
 
 }
