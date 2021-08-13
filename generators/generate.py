@@ -8,12 +8,12 @@ num_sample = 100000
 seed = 42
 delim = ','
 
-max_tree_depths=[20]
-min_leaf_depths=[1, 10, 20]
-# min_leaf_depths=[20]
-n_cat_features = 50
+max_tree_depths=[3]
+# min_leaf_depths=[1, 10, 20]
+min_leaf_depths=[3]
+n_cat_features = 10
 n_categories_per_cat_feature= 2
-n_classes = 20
+n_classes = 2
 
 
 for max_tree_depth in max_tree_depths:
