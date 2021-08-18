@@ -61,7 +61,7 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
     Instances prototypeData;
     InstanceStore instanceStore;
 
-    Boolean initPhase = true;
+    boolean enablePatching = false;
     Vector subsets = new Vector();
     double basePerformance = 0;
     Vector basePerfOnSubset = new Vector();
@@ -95,13 +95,14 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
     public FlagOption forceNoAdaptation = new FlagOption("forceNoAdaptation", 'f', "If set, NO adaptation is processed!");
 
     public WEKAClassOption baseClassifierOption = new WEKAClassOption("baseLearner", 'l',
-            "WEKA class to use for the base classifier.", weka.classifiers.Classifier.class, "weka.classifiers.rules.JRip");
+            "WEKA class to use for the base classifier.", weka.classifiers.Classifier.class, "weka.classifiers.trees.RandomForest");
 
     public WEKAClassOption dsClassifierOption = new WEKAClassOption("decisionSpaceLearner", 'd',
-            "WEKA class to use for learning the decision space in which the errors lie. Choose JRip to use our specialized version ExtRip.", weka.classifiers.Classifier.class, "weka.classifiers.rules.JRip");//"moa.tud.ke.patching.ExtJRip");
+            "WEKA class to use for learning the decision space in which the errors lie. Choose JRip to use our specialized version ExtRip.",
+            weka.classifiers.Classifier.class, "weka.classifiers.trees.RandomForest");//"moa.tud.ke.patching.ExtJRip");
 
     public WEKAClassOption patchClassifierOption = new WEKAClassOption("patchLearner", 'p',
-            "WEKA class to use for the patches as classifier.", weka.classifiers.Classifier.class, "weka.classifiers.rules.JRip");
+            "WEKA class to use for the patches as classifier.", weka.classifiers.Classifier.class, "weka.classifiers.trees.RandomForest");
 
     public FileOption saveLoadModel = new FileOption("Modelfile", 'm', "Where to store/load the base model from/to, should you require to re-use it.", "", ".model", false);
 
@@ -126,13 +127,12 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
         this.regionDecider = null;
         this.instanceStore = new InstanceStore(batchesToKeep.getValue());
 
-        initPhase = true;
+        this.enablePatching = false;
     }
 
     /**
      * Trains on a new instance
      *
-     * @param inst
      */
     public void trainOnInstanceImpl(Instance samoaInstance) {
 
@@ -150,40 +150,43 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
 
         // React according to which phase we are in:
         // 1) Initialisation phase
-        if (this.initPhase) {
+        // if (this.initPhase) {
 
-            if (instancesInBatch >= this.initialBatchSize.getValue()) {
-                this.initPhase = false;
+        //     if (instancesInBatch >= this.initialBatchSize.getValue()) {
+        //         this.initPhase = false;
 
-                this.origData = instancesBuffer;
-                instancesBuffer = null; // kill teh buffa
-                buildBaseClassifier();
-                instancesInBatch = 0; // reset this
+        //         this.origData = instancesBuffer;
+        //         instancesBuffer = null; // kill teh buffa
+        //         buildBaseClassifier();
+        //         instancesInBatch = 0; // reset this
 
-                if (useBaseClassAsAttribute.isSet()) {
-                    this.prototypeData = new Instances(this.origData);  // create an empty instance set, just for the attribute configuration
-                    while (prototypeData.size() > 0) {
-                        this.prototypeData.delete(0);
-                    }
-                }
+        //         if (useBaseClassAsAttribute.isSet()) {
+        //             this.prototypeData = new Instances(this.origData);  // create an empty instance set, just for the attribute configuration
+        //             while (prototypeData.size() > 0) {
+        //                 this.prototypeData.delete(0);
+        //             }
+        //         }
+        //     }
+
+        // } else {
+            // 2) Batch acquisition + update phase
+
+        // TODO remove init phase. Assign baseClassifier with the transferred classifier.
+        if (instancesInBatch >= batchSize.getValue()) {
+
+            // Update the classifier if allowed
+            if (!forceNoAdaptation.isSet()) {
+                updateClassifier(instancesBuffer);
             }
 
-        } // 2) Batch acquisition + update phase
-        else {
-
-            if (instancesInBatch >= batchSize.getValue()) {
-
-                // Update the classifier if allowed
-                if (!forceNoAdaptation.isSet()) {
-                    updateClassifier(instancesBuffer);
-                }
-
-                // and reset the instanceBuffer
-                instancesInBatch = 0; // reset
-                this.instancesBuffer = null;
-            }
+            // and reset the instanceBuffer
+            instancesInBatch = 0; // reset
+            this.instancesBuffer = null;
         }
+    }
 
+    public void setEnablePatching(boolean enablePatching) {
+        this.enablePatching = enablePatching;
     }
 
     /**
@@ -191,36 +194,36 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
      * base classifier model from/to a file if required (if you want to re-use
      * it).
      */
-    private void buildBaseClassifier() {
-        System.out.println("Building base classifier after " + this.instancesInBatch + " instances.");
-        try {
-            Boolean baseExists = false;
-            if (this.saveLoadModel.getValue().length() > 1) {
-                System.out.print("Loading base classifier from " + this.saveLoadModel.getValue() + " ... ");
-                this.baseClassifier = FileModel.tryNLoadModel(this.saveLoadModel.getValue());
-                if (this.baseClassifier != null) {
-                    baseExists = true;
-                    System.out.println(" succeeded.");
-                } else {
-                    System.out.println(" failed (file does not exist)");
-                }
-            }
+    // private void buildBaseClassifier() {
+    //     System.out.println("Building base classifier after " + this.instancesInBatch + " instances.");
+    //     try {
+    //         Boolean baseExists = false;
+    //         if (this.saveLoadModel.getValue().length() > 1) {
+    //             System.out.print("Loading base classifier from " + this.saveLoadModel.getValue() + " ... ");
+    //             this.baseClassifier = FileModel.tryNLoadModel(this.saveLoadModel.getValue());
+    //             if (this.baseClassifier != null) {
+    //                 baseExists = true;
+    //                 System.out.println(" succeeded.");
+    //             } else {
+    //                 System.out.println(" failed (file does not exist)");
+    //             }
+    //         }
 
-            if (!baseExists) {
-                this.baseClassifier = getBaseClassifier();
-                this.baseClassifier.buildClassifier(origData);
+    //         if (!baseExists) {
+    //             this.baseClassifier = getBaseClassifier();
+    //             this.baseClassifier.buildClassifier(origData);
 
-                if (this.saveLoadModel.getValue().length() > 1) {
-                    System.out.println("Saving base classifier to " + this.saveLoadModel.getValue());
-                    FileModel.saveModel(this.saveLoadModel.getValue(), this.baseClassifier);
-                }
-            }
+    //             if (this.saveLoadModel.getValue().length() > 1) {
+    //                 System.out.println("Saving base classifier to " + this.saveLoadModel.getValue());
+    //                 FileModel.saveModel(this.saveLoadModel.getValue(), this.baseClassifier);
+    //             }
+    //         }
 
-        } catch (Exception e) {
-            System.err.println("Error building base classifier:");
-            System.err.println(e.getMessage());
-        }
-    }
+    //     } catch (Exception e) {
+    //         System.err.println("Error building base classifier:");
+    //         System.err.println(e.getMessage());
+    //     }
+    // }
 
     /**
      * Returns a classifier object specified by the options given in the MOA UI
@@ -301,17 +304,19 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
 
         System.out.println("Update at Instance: " + this.numInstances + " | Size of Instance store (updates:" + this.updates + "): " + currentStore.size());
 
-        // Turn the instances into a binary learning problem to learn the decision space where the original classifier was wrong
-        this.reDefinedClasses = redefineProblem(currentStore);
+        if (this.enablePatching) {
+            // Turn the instances into a binary learning problem to learn the decision space where the original classifier was wrong
+            this.reDefinedClasses = redefineProblem(currentStore);
 
-        // Now: learn the error regions with a specially adapted or a normal classifier:
-        try {
-            this.regionDecider = new DSALearnerWrapper(getDecisionSpaceClassifier());
-            regionDecider.buildClassifier(reDefinedClasses);
-        } catch (Exception e) {
-            System.err.println("Error building region decider");
-            System.err.println(e.getStackTrace());
-            System.err.println(e.getMessage());
+            // Now: learn the error regions with a specially adapted or a normal classifier:
+            try {
+                this.regionDecider = new DSALearnerWrapper(getDecisionSpaceClassifier());
+                regionDecider.buildClassifier(reDefinedClasses);
+            } catch (Exception e) {
+                System.err.println("Error building region decider");
+                System.err.println(e.getStackTrace());
+                System.err.println(e.getMessage());
+            }
         }
 
         // Optional: add the original prediction as an additional attribute:
@@ -620,7 +625,6 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
     /**
      * classify an instance
      *
-     * @param inst
      * @return
      */
     public double[] getVotesForInstance(Instance samoaInstance) {

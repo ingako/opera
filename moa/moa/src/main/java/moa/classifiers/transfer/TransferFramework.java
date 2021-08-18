@@ -1,7 +1,9 @@
 package moa.classifiers.transfer;
 
 import com.github.javacliparser.FlagOption;
+import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
+import com.yahoo.labs.samoa.instances.SamoaToWekaInstanceConverter;
 import moa.capabilities.CapabilitiesHandler;
 import moa.capabilities.Capability;
 import moa.capabilities.ImmutableCapabilities;
@@ -23,96 +25,152 @@ import com.yahoo.labs.samoa.instances.Instance;
 import moa.options.WEKAClassOption;
 import weka.classifiers.Classifier;
 
+import java.util.ArrayDeque;
+import java.util.Random;
+
 public class TransferFramework extends AbstractClassifier implements MultiClassClassifier, CapabilitiesHandler {
 
     private static final long serialVersionUID = 1L;
 
-    public IntOption windowSizeOption = new IntOption("windowSize", 'w',
+    public ClassOption patchingClassifierOption = new ClassOption("patchingClassifierOption", 'p',
+            "Patching classifier options", Patching.class, "Patching");
+
+    public ClassOption driftDetectionMethodOption = new ClassOption("driftDetectionMethod", 'd',
+            "Change detector for drifts and its parameters", ChangeDetector.class, "ADWINChangeDetector -a 1.0E-3");
+
+    public ClassOption warningDetectionMethodOption = new ClassOption("warningDetectionMethod", 'w',
+            "Change detector for warnings (start training bkg learner)", ChangeDetector.class, "ADWINChangeDetector -a 1.0E-2");
+
+    public ClassOption phantomTreeOption = new ClassOption("phantomTree", 't',
+            "Phantom Tree for measuring construction complexity", PhantomTree.class, "PhantomTree");
+
+    public FloatOption convDeltaOption = new FloatOption("convDelta", 'a',
+            "The confidence value for computing true error during the observation period", 0.1, 0.0, 1.0);
+
+    public FloatOption convThresholdOption = new FloatOption("convThreshold", 'b',
+            "The convergence threshold for true error during the observation period", 0.1, 0.0, 1.0);
+
+    public IntOption windowSizeOption = new IntOption("windowSize", 'n',
             "The number of instances to observe for testing convergence.",
             50, 0, Integer.MAX_VALUE);
 
-    public WEKAClassOption baseClassifierOption = new WEKAClassOption("baseClassifier", 'l',
-            "WEKA class to use for the base classifier.", weka.classifiers.Classifier.class, "weka.classifiers.trees.RandomForest");
-
-    public ClassOption driftDetectionMethodOption = new ClassOption("driftDetectionMethod", 'x',
-            "Change detector for drifts and its parameters", ChangeDetector.class, "ADWINChangeDetector -a 1.0E-3");
-
-    public ClassOption warningDetectionMethodOption = new ClassOption("warningDetectionMethod", 'p',
-            "Change detector for warnings (start training bkg learner)", ChangeDetector.class, "ADWINChangeDetector -a 1.0E-2");
-
-    public ClassOption phantomTreeOption = new ClassOption("phantomTree", 'p',
-            "Phantom Tree for measuring construction complexity", PhantomTree.class, "PhantomTree");
-
-    protected AutoExpandVector<AdaptiveRandomForest> sourceRepo;
-    protected Classifier baseClassifier;
-    protected Patching patching;
+    protected AutoExpandVector<Patching> sourceRepo;
+    protected Patching classifier;
     protected ChangeDetector driftDetectionMethod;
     protected ChangeDetector warningDetectionMethod;
     protected AutoExpandVector<Instance> obsInstanceStore;
+    protected TrueError trueError;
 
     public boolean isRandomizable() {
         return true;
     }
 
     @Override
-    public double[] getVotesForInstance(Instance inst) {
-        return new double[0];
+    public double[] getVotesForInstance(Instance samoaInstance) {
+        return this.classifier.getVotesForInstance(samoaInstance);
     }
 
     @Override
     public void resetLearningImpl() {
-        this.obsInstanceStore = null;
-        this.baseClassifier = getBaseClassifier();
         this.sourceRepo = new AutoExpandVector<>();
+        this.classifier = null;
         this.driftDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.driftDetectionMethodOption)).copy();
+        this.warningDetectionMethod = null;
+        this.obsInstanceStore = null;
+        this.trueError = null;
     }
 
     @Override
     public void trainOnInstanceImpl(Instance inst) {
-        if (patching != null) {
-            patching.trainOnInstanceImpl(inst);
-            return;
+        if (this.classifier == null) {
+            this.classifier = (Patching) getPreparedClassOption(this.patchingClassifierOption);
         }
 
-        int errorCount = this.baseClassifier.getClass() == inst.getClass() ? 0 : 1;
+        this.classifier.trainOnInstanceImpl(inst);
+
+        int errorCount = this.classifier.correctlyClassifies(inst)? 0 : 1;
         driftDetectionMethod.input(errorCount);
         if (driftDetectionMethod.getChange()) {
             this.obsInstanceStore = new AutoExpandVector<>();
+            this.trueError = new TrueError(
+                    this.windowSizeOption.getValue(),
+                    this.convDeltaOption.getValue(),
+                    this.convThresholdOption.getValue(),
+                    this.classifierRandom);
         }
 
-        if (isStable(errorCount)) {
-            PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
+        if (this.obsInstanceStore != null) {
+            this.obsInstanceStore.add(inst);
+
+            // weka.classifiers.trees.RandomForest randomForest = (weka.classifiers.trees.RandomForest) this.baseClassifier;
+            // randomForest.getMembershipValues();
+
+            if (this.trueError.isStable(errorCount)) {
+                PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
+
+                // TODO if cost-effective
+                this.classifier.setEnablePatching(true);
+            }
         }
+
     }
 
-    private boolean isStable(int errorCount) {
-        // if (this.trainingWeightSeenByModel == this.windowSizeOption.getValue()) {
-        // }
 
-        int sigma = -1;
-        if (this.classifierRandom.nextBoolean()) {
-            sigma = 1;
+    class TrueError {
+        int sampleSize;
+        int windowSize;
+        double rc;
+        double errorCount;
+        double delta;
+        double convThreshold;
+        double windowSum;
+        Random classifierRandom;
+
+        ArrayDeque<Double> window;
+
+        public TrueError(
+                int windowSize,
+                double delta,
+                double convThreshold,
+                Random classifierRandom) {
+
+            this.sampleSize = 0;
+            this.windowSize = windowSize;
+            this.rc = 0;
+            this.errorCount = 0;
+            this.delta = delta;
+            this.convThreshold = convThreshold;
+            this.windowSum = 0;
+            this.classifierRandom = classifierRandom;
         }
-        return false;
-    }
 
-    private Classifier getBaseClassifier() {
-        try {
-            String[] options = weka.core.Utils.splitOptions(baseClassifierOption.getValueAsCLIString());
-            String classifierName = options[0];
-            String[] newoptions = options.clone();
-            newoptions[0] = "";
-            Classifier classifier = weka.classifiers.AbstractClassifier.forName(classifierName, newoptions);
+        private boolean isStable(int error) {
+            if (this.window.size() == this.windowSize) {
+                double val = this.window.pop();
+                this.windowSum -= val;
+            }
+            this.windowSum += getTrueError(error);
 
-            return classifier;
-
-        } catch (Exception e) {
-            System.err.println("Error retrieving selected classifier:");
-            System.err.println("Chosen classifier: " + this.baseClassifierOption.getValueAsCLIString());
-            System.err.println(e.getMessage());
+            return false;
         }
 
-        return null;
+        public double getTrueError(int error) {
+            this.errorCount += error;
+            this.sampleSize++;
+
+            int sigma = -1;
+            if (this.classifierRandom.nextBoolean()) {
+                sigma = 1;
+            }
+            this.rc += sigma * error;
+
+            double risk = this.errorCount / this.sampleSize;
+            this.rc /= this.sampleSize;
+
+            // true error based on Rademacher bound
+            double trueErrorBound = risk + 2*this.rc + 3*Math.sqrt(Math.log(2/this.delta) / (2*sampleSize));
+            return trueErrorBound;
+        }
     }
 
     protected AttributeClassObserver newNominalClassObserver() {
