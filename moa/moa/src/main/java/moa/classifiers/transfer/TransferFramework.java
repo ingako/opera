@@ -54,8 +54,13 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             "The number of instances to observe for testing convergence.",
             50, 0, Integer.MAX_VALUE);
 
-    protected AutoExpandVector<Patching> sourceRepo;
-    protected Patching classifier;
+    public FlagOption disablePatchingOption = new FlagOption("disablePatching", 'e', "Disable patching as a benchmark");
+
+    public FlagOption forceEnablePatchingOption = new FlagOption("forceEnablePatching", 'x', "Force enable patching as a benchmark");
+
+    protected AutoExpandVector<Patching> classifierRepo;
+    protected Patching fgClassifier;
+    protected Patching bgClassifier;
     protected ChangeDetector driftDetectionMethod;
     protected ChangeDetector warningDetectionMethod;
     protected AutoExpandVector<Instance> obsInstanceStore;
@@ -67,13 +72,13 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     @Override
     public double[] getVotesForInstance(Instance samoaInstance) {
-        return this.classifier.getVotesForInstance(samoaInstance);
+        return this.fgClassifier.getVotesForInstance(samoaInstance);
     }
 
     @Override
     public void resetLearningImpl() {
-        this.sourceRepo = new AutoExpandVector<>();
-        this.classifier = null;
+        this.classifierRepo = new AutoExpandVector<>();
+        this.fgClassifier= null;
         this.driftDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.driftDetectionMethodOption)).copy();
         this.warningDetectionMethod = null;
         this.obsInstanceStore = null;
@@ -82,21 +87,51 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     @Override
     public void trainOnInstanceImpl(Instance inst) {
-        if (this.classifier == null) {
-            this.classifier = (Patching) getPreparedClassOption(this.patchingClassifierOption);
+        if (this.fgClassifier == null) {
+            this.fgClassifier = (Patching) getPreparedClassOption(this.patchingClassifierOption);
         }
 
-        this.classifier.trainOnInstanceImpl(inst);
+        int errorCount = this.fgClassifier.correctlyClassifies(inst)? 0 : 1;
 
-        int errorCount = this.classifier.correctlyClassifies(inst)? 0 : 1;
-        driftDetectionMethod.input(errorCount);
-        if (driftDetectionMethod.getChange()) {
+        this.driftDetectionMethod.input(errorCount);
+        if (this.driftDetectionMethod.getChange()) {
+            this.driftDetectionMethod.resetLearning();
+            this.warningDetectionMethod.resetLearning();
+
             this.obsInstanceStore = new AutoExpandVector<>();
             this.trueError = new TrueError(
                     this.windowSizeOption.getValue(),
                     this.convDeltaOption.getValue(),
                     this.convThresholdOption.getValue(),
                     this.classifierRandom);
+
+            // TODO decide whether to use patching or bg classifier
+            // if to not patching
+            this.classifierRepo.add(this.fgClassifier);
+            if (this.bgClassifier == null) {
+                this.fgClassifier= (Patching) getPreparedClassOption(this.patchingClassifierOption);
+            } else {
+                this.fgClassifier = this.bgClassifier;
+                this.bgClassifier = null;
+            }
+
+            return;
+        }
+
+        this.warningDetectionMethod.input(errorCount);
+        if (this.warningDetectionMethod.getChange()) {
+            this.bgClassifier = (Patching) getPreparedClassOption(this.patchingClassifierOption);
+            this.warningDetectionMethod.resetLearning();
+
+            if (!this.disablePatchingOption.isSet()) {
+                this.obsInstanceStore = new AutoExpandVector<>();
+                this.trueError = new TrueError(
+                        this.windowSizeOption.getValue(),
+                        this.convDeltaOption.getValue(),
+                        this.convThresholdOption.getValue(),
+                        this.classifierRandom);
+            }
+
         }
 
         if (this.obsInstanceStore != null) {
@@ -109,12 +144,16 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                 PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
 
                 // TODO if cost-effective
-                this.classifier.setEnablePatching(true);
+                this.fgClassifier.setEnablePatching(true);
             }
         }
 
-    }
+        this.fgClassifier.trainOnInstanceImpl(inst);
+        if (this.bgClassifier != null) {
+            this.bgClassifier.trainOnInstanceImpl(inst);
+        }
 
+    }
 
     class TrueError {
         int sampleSize;
