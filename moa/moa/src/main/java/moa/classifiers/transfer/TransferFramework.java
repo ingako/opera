@@ -64,6 +64,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
     protected ChangeDetector driftDetectionMethod;
     protected ChangeDetector warningDetectionMethod;
     protected AutoExpandVector<Instance> obsInstanceStore;
+    protected AutoExpandVector<Instance> errorRegionInstanceStore;
     protected TrueError trueError;
 
     public boolean isRandomizable() {
@@ -92,6 +93,33 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         }
 
         int errorCount = this.fgClassifier.correctlyClassifies(inst)? 0 : 1;
+
+        if (this.obsInstanceStore != null) {
+            this.obsInstanceStore.add(inst);
+            if (errorCount == 1) {
+                this.errorRegionInstanceStore.add(inst);
+            }
+
+            // weka.classifiers.trees.RandomForest randomForest = (weka.classifiers.trees.RandomForest) this.baseClassifier;
+            // randomForest.getMembershipValues();
+
+            if (this.trueError.isStable(errorCount)) {
+                PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
+                PhantomTree regionalPhantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
+
+                double regionalComplexity = regionalPhantomTree.getConstructionComplexity(errorRegionInstanceStore);
+                double complexity = phantomTree.getConstructionComplexity(obsInstanceStore);
+                System.out.println("regional=" + regionalComplexity + " | complexity=" + complexity);
+                if (regionalComplexity < complexity) {
+                    // enable patching
+                    this.fgClassifier.setEnablePatching(true);
+                    this.bgClassifier = null;
+                }
+
+                this.obsInstanceStore = null;
+                this.errorRegionInstanceStore = null;
+            }
+        }
 
         this.driftDetectionMethod.input(errorCount);
         if (this.driftDetectionMethod.getChange()) {
@@ -132,20 +160,6 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                         this.classifierRandom);
             }
 
-        }
-
-        if (this.obsInstanceStore != null) {
-            this.obsInstanceStore.add(inst);
-
-            // weka.classifiers.trees.RandomForest randomForest = (weka.classifiers.trees.RandomForest) this.baseClassifier;
-            // randomForest.getMembershipValues();
-
-            if (this.trueError.isStable(errorCount)) {
-                PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
-
-                // TODO if cost-effective
-                this.fgClassifier.setEnablePatching(true);
-            }
         }
 
         this.fgClassifier.trainOnInstanceImpl(inst);

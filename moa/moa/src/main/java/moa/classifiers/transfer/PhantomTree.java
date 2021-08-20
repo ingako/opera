@@ -448,13 +448,33 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         this.instanceStore = new ArrayDeque<>();
     }
 
+    public double getConstructionComplexity(AutoExpandVector<Instance> instances) {
+        for (Instance inst : instances) {
+            this.trainOnInstanceImpl(inst);
+        }
+
+        System.out.println("MOA description:");
+        StringBuilder description = new StringBuilder();
+        this.treeRoot.describeSubtree(this, description, 4);
+        System.out.println(description.toString());
+
+        ArrayDeque<PhantomNode> phantomLeaves = growPhantomBranches();
+        double depth_sum = 0.0;
+        for (PhantomNode phantomLeaf : phantomLeaves) {
+            depth_sum += phantomLeaf.depth;
+        }
+
+        return depth_sum / phantomLeaves.size();
+    }
+
     @Override
     public void trainOnInstanceImpl(Instance inst) {
-        if (this.trainingWeightSeenByModel < obsPeriodOption.getValue()) {
+        if (this.trainingWeightSeenByModel <= this.obsPeriodOption.getValue()) {
             super.trainOnInstanceImpl(inst);
             instanceStore.offer(inst);
 
-        } else if (this.trainingWeightSeenByModel == obsPeriodOption.getValue()) {
+        } else if (this.trainingWeightSeenByModel > this.obsPeriodOption.getValue()
+                    || inst == null) {
             System.out.println("MOA description:");
             StringBuilder description = new StringBuilder();
             this.treeRoot.describeSubtree(this, description, 4);

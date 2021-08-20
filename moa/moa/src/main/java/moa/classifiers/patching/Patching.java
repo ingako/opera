@@ -61,10 +61,12 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
     Instances prototypeData;
     InstanceStore instanceStore;
 
-    boolean enablePatching = false;
     Vector subsets = new Vector();
     double basePerformance = 0;
     Vector basePerfOnSubset = new Vector();
+
+    boolean enablePatching = false;
+    boolean isBaseTransferred = false;
 
     public Patching() {
         super();
@@ -128,6 +130,7 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
         this.instanceStore = new InstanceStore(batchesToKeep.getValue());
 
         this.enablePatching = false;
+        this.isBaseTransferred = false;
     }
 
     /**
@@ -172,8 +175,16 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
             // 2) Batch acquisition + update phase
 
         // TODO remove init phase. Assign baseClassifier with the transferred classifier.
-        if (instancesInBatch >= batchSize.getValue()) {
+        if (instancesInBatch < batchSize.getValue()) {
+        }
 
+        if (this.isBaseTransferred) {
+
+        } else {
+
+        }
+
+        if (this.enablePatching) {
             // Update the classifier if allowed
             if (!forceNoAdaptation.isSet()) {
                 updateClassifier(instancesBuffer);
@@ -183,6 +194,7 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
             instancesInBatch = 0; // reset
             this.instancesBuffer = null;
         }
+
     }
 
     public void setEnablePatching(boolean enablePatching) {
@@ -304,19 +316,17 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
 
         System.out.println("Update at Instance: " + this.numInstances + " | Size of Instance store (updates:" + this.updates + "): " + currentStore.size());
 
-        if (this.enablePatching) {
-            // Turn the instances into a binary learning problem to learn the decision space where the original classifier was wrong
-            this.reDefinedClasses = redefineProblem(currentStore);
+        // Turn the instances into a binary learning problem to learn the decision space where the original classifier was wrong
+        this.reDefinedClasses = redefineProblem(currentStore);
 
-            // Now: learn the error regions with a specially adapted or a normal classifier:
-            try {
-                this.regionDecider = new DSALearnerWrapper(getDecisionSpaceClassifier());
-                regionDecider.buildClassifier(reDefinedClasses);
-            } catch (Exception e) {
-                System.err.println("Error building region decider");
-                System.err.println(e.getStackTrace());
-                System.err.println(e.getMessage());
-            }
+        // Now: learn the error regions with a specially adapted or a normal classifier:
+        try {
+            this.regionDecider = new DSALearnerWrapper(getDecisionSpaceClassifier());
+            regionDecider.buildClassifier(reDefinedClasses);
+        } catch (Exception e) {
+            System.err.println("Error building region decider");
+            System.err.println(e.getStackTrace());
+            System.err.println(e.getMessage());
         }
 
         // Optional: add the original prediction as an additional attribute:
