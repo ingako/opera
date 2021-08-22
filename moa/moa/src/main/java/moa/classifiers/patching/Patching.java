@@ -178,21 +178,18 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
         if (instancesInBatch < batchSize.getValue()) {
         }
 
-        if (this.isBaseTransferred) {
-
-        } else {
-
-        }
-
         if (this.enablePatching) {
-            // Update the classifier if allowed
-            if (!forceNoAdaptation.isSet()) {
-                updateClassifier(instancesBuffer);
-            }
+            if (instancesInBatch >= batchSize.getValue()) {
 
-            // and reset the instanceBuffer
-            instancesInBatch = 0; // reset
-            this.instancesBuffer = null;
+                // Update the classifier if allowed
+                if (!forceNoAdaptation.isSet()) {
+                    updateClassifier(instancesBuffer);
+                }
+
+                // and reset the instanceBuffer
+                instancesInBatch = 0; // reset
+                this.instancesBuffer = null;
+            }
         }
 
     }
