@@ -1,17 +1,34 @@
 #!/usr/bin/env python3
 
+import copy
 import os
-from skmultiflow.data.random_tree_generator import RandomTreeGenerator
+import logging
 from pathlib import Path
 
-num_sample = 100000
+from skmultiflow.data.random_tree_generator import RandomTreeGenerator
+from stream_generator import RecurrentDriftStream
+
+formatter = logging.Formatter('%(message)s')
+
+def setup_logger(name, log_file, level=logging.INFO):
+  handler = logging.FileHandler(log_file, mode='w')
+  handler.setFormatter(formatter)
+
+  logger = logging.getLogger(name)
+  logger.setLevel(level)
+  logger.addHandler(handler)
+
+  return logger
+
+
+num_sample = 40000
 seed = 42
 delim = ','
 
-max_tree_depths=[3]
+max_tree_depths=[10]
 # min_leaf_depths=[1, 10, 20]
-min_leaf_depths=[3]
-n_cat_features = 10
+min_leaf_depths=[10]
+n_cat_features = 20
 n_categories_per_cat_feature= 2
 n_classes = 2
 
@@ -28,10 +45,11 @@ for max_tree_depth in max_tree_depths:
         header.append("@data\n")
 
         output_dir = f'../data/tree/{n_cat_features}/{max_tree_depth}/{min_leaf_depth}'
+        stable_period_logger = setup_logger(f'drift-{seed}', f'{output_dir}/drift-{seed}.log')
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         output_filename = f'{output_dir}/{seed}.arff'
 
-        stream = RandomTreeGenerator(
+        full_tree_stream = RandomTreeGenerator(
                     tree_random_state=seed,
                     n_classes=n_classes,
                     n_cat_features=n_cat_features,
@@ -42,7 +60,17 @@ for max_tree_depth in max_tree_depths:
                     fraction_leaves_per_level=0.15)
 
         print(f'generating {output_filename}...')
-        stream.get_depth_info()
+        full_tree_stream.get_depth_info()
+
+        pruned_tree_stream = copy.deepcopy(full_tree_stream)
+        pruned_tree_stream.prune_subtrees(prune_level=3, prune_percentage=0.5)
+
+        print("after prunning")
+        pruned_tree_stream.get_depth_info()
+
+
+        stream = RecurrentDriftStream(stable_period_logger=stable_period_logger)
+        stream.prepare_for_use([pruned_tree_stream, full_tree_stream])
 
         with open(output_filename, 'w') as out:
             out.write('\n'.join(header))
