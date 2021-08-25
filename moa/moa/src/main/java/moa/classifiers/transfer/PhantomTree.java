@@ -448,9 +448,10 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         this.instanceStore = new ArrayDeque<>();
     }
 
-    public double getConstructionComplexity(AutoExpandVector<Instance> instances) {
+    public double getConstructionComplexity(ArrayDeque<Instance> instances) {
         for (Instance inst : instances) {
-            this.trainOnInstanceImpl(inst);
+            super.trainOnInstanceImpl(inst);
+            this.instanceStore.offer(inst);
         }
 
         System.out.println("MOA description:");
@@ -471,7 +472,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
     public void trainOnInstanceImpl(Instance inst) {
         if (this.trainingWeightSeenByModel <= this.obsPeriodOption.getValue()) {
             super.trainOnInstanceImpl(inst);
-            instanceStore.offer(inst);
+            this.instanceStore.offer(inst);
 
         } else if (this.trainingWeightSeenByModel > this.obsPeriodOption.getValue()
                     || inst == null) {

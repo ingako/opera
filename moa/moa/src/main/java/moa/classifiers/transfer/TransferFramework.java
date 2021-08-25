@@ -15,6 +15,7 @@ import moa.classifiers.core.attributeclassobservers.GaussianNumericAttributeClas
 import moa.classifiers.core.attributeclassobservers.NominalAttributeClassObserver;
 import moa.classifiers.core.driftdetection.ChangeDetector;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
+import moa.classifiers.drift.DriftDetectionMethodClassifier;
 import moa.classifiers.meta.AdaptiveRandomForest;
 import moa.classifiers.patching.Patching;
 import moa.core.AutoExpandVector;
@@ -45,21 +46,21 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             "The confidence value for computing true error during the observation period", 0.1, 0.0, 1.0);
 
     public FloatOption convThresholdOption = new FloatOption("convThreshold", 'b',
-            "The convergence threshold for true error during the observation period", 0.1, 0.0, 1.0);
+            "The convergence threshold for true error during the observation period", 0.15, 0.0, 1.0);
 
     public IntOption windowSizeOption = new IntOption("windowSize", 'n',
             "The number of instances to observe for testing convergence.",
             50, 0, Integer.MAX_VALUE);
 
-    public FlagOption disablePatchingOption = new FlagOption("disablePatching", 'e', "Disable patching as a benchmark");
+    public FlagOption forceDisablePatchingOption = new FlagOption("froceDisablePatching", 'e', "Disable patching as a benchmark");
 
     public FlagOption forceEnablePatchingOption = new FlagOption("forceEnablePatching", 'x', "Force enable patching as a benchmark");
 
     protected AutoExpandVector<Patching> classifierRepo;
     protected Patching classifier;
     protected ChangeDetector driftDetectionMethod;
-    protected AutoExpandVector<Instance> obsInstanceStore;
-    protected AutoExpandVector<Instance> errorRegionInstanceStore;
+    protected ArrayDeque<Instance> obsInstanceStore;
+    protected ArrayDeque<Instance> errorRegionInstanceStore;
     protected TrueError trueError;
 
     public boolean isRandomizable() {
@@ -93,31 +94,29 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         if (this.driftDetectionMethod.getChange()) {
             this.driftDetectionMethod.resetLearning();
 
-            if (this.disablePatchingOption.isSet()) {
-                this.classifier = (Patching) getPreparedClassOption(this.patchingClassifierOption);
+            this.classifierRepo.add(this.classifier);
+            this.obsInstanceStore = new ArrayDeque<>();
+            this.errorRegionInstanceStore = new ArrayDeque<>();
+
+            this.trueError = new TrueError(
+                    this.windowSizeOption.getValue(),
+                    this.convDeltaOption.getValue(),
+                    this.convThresholdOption.getValue(),
+                    this.classifierRandom);
+
+            if (this.classifierRepo.size() == 1) {
+                // classifier is the transferred model
 
             } else {
-                this.classifierRepo.add(this.classifier);
-                this.obsInstanceStore = new AutoExpandVector<>();
-                this.trueError = new TrueError(
-                        this.windowSizeOption.getValue(),
-                        this.convDeltaOption.getValue(),
-                        this.convThresholdOption.getValue(),
-                        this.classifierRandom);
-
-                if (this.classifierRepo.size() == 1) {
-                    // classifier is the transferred model
-
-                } else {
-                    // TODO
-                    throw new NullPointerException("Not supporting cross stream transfer yet.");
-                }
+                // TODO
+                throw new NullPointerException("Not supporting cross stream transfer yet.");
             }
         }
 
-        this.classifier.trainOnInstanceImpl(inst);
+        if (this.obsInstanceStore == null) {
+            this.classifier.trainOnInstanceImpl(inst);
 
-        if (this.obsInstanceStore != null) {
+        } else {
             this.obsInstanceStore.add(inst);
             if (errorCount == 1) {
                 this.errorRegionInstanceStore.add(inst);
@@ -127,19 +126,31 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             // randomForest.getMembershipValues();
 
             if (this.trueError.isStable(errorCount)) {
-                PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
-                PhantomTree regionalPhantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
+                this.driftDetectionMethod.resetLearning();
+                System.out.println("instance store size: " + obsInstanceStore.size());
 
-                double regionalComplexity = regionalPhantomTree.getConstructionComplexity(errorRegionInstanceStore);
-                double complexity = phantomTree.getConstructionComplexity(obsInstanceStore);
-                System.out.println("regional=" + regionalComplexity + " | complexity=" + complexity);
-                if (regionalComplexity < complexity) {
+                if (this.forceDisablePatchingOption.isSet()) {
+                    this.classifier.resetLearning();
+
+                } else if (this.forceEnablePatchingOption.isSet()) {
                     this.classifier.setEnablePatching(true);
+
                 } else {
-                    this.classifier = (Patching) getPreparedClassOption(this.patchingClassifierOption);
-                    for (Instance obsInstance : obsInstanceStore) {
-                        this.classifier.trainOnInstanceImpl(obsInstance);
+                    PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
+                    PhantomTree regionalPhantomTree = (PhantomTree) phantomTree.copy();
+
+                    double regionalComplexity = regionalPhantomTree.getConstructionComplexity(errorRegionInstanceStore);
+                    double complexity = phantomTree.getConstructionComplexity(obsInstanceStore);
+                    System.out.println("regional=" + regionalComplexity + " | full=" + complexity);
+                    if (regionalComplexity < complexity) {
+                        this.classifier.setEnablePatching(true);
+                    } else {
+                        this.classifier.resetLearningImpl();
                     }
+                }
+
+                for (Instance obsInstance : obsInstanceStore) {
+                    this.classifier.trainOnInstanceImpl(obsInstance);
                 }
 
                 this.obsInstanceStore = null;
@@ -158,7 +169,6 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         double convThreshold;
         double windowSum;
         Random classifierRandom;
-
         ArrayDeque<Double> window;
 
         public TrueError(
@@ -175,24 +185,32 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             this.convThreshold = convThreshold;
             this.windowSum = 0;
             this.classifierRandom = classifierRandom;
+            this.window = new ArrayDeque<>();
         }
 
         private boolean isStable(int error) {
-            if (this.window.size() == this.windowSize) {
-                double val = this.window.pop();
-                this.windowSum -= val;
-            }
             double trueError = getTrueError(error);
             this.window.add(trueError);
             this.windowSum += trueError;
 
+            if (this.window.size() < this.windowSize) {
+                return false;
+            }
+
+            if (this.window.size() > this.windowSize) {
+                double val = this.window.pop();
+                this.windowSum -= val;
+            }
+
             double mean = this.windowSum / this.window.size();
             double numerator = 0;
             for (double err : window) {
-                numerator += err - mean;
+                numerator += Math.sqrt(Math.abs(err - mean));
             }
 
-            if (numerator / (this.window.size() - 1) <= this.convThreshold) {
+            double convVal = Math.sqrt(numerator / (this.window.size() - 1));
+           //  System.out.println(convVal);
+            if (convVal <= this.convThreshold) {
                 return true;
             }
 
