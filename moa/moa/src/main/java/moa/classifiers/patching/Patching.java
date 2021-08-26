@@ -66,7 +66,6 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
     Vector basePerfOnSubset = new Vector();
 
     boolean enablePatching = false;
-    boolean isBaseTransferred = false;
 
     public Patching() {
         super();
@@ -80,9 +79,9 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
     /**
      * Options that can be adjusted via the MOA interface
      */
-    public IntOption initialBatchSize = new IntOption("InitialBucketSize", 'i',
-            "Size of the first batch that is used to create the base model.", 5000,
-            0, Integer.MAX_VALUE);
+    // public IntOption initialBatchSize = new IntOption("InitialBucketSize", 'i',
+    //         "Size of the first batch that is used to create the base model.", 5000,
+    //         0, Integer.MAX_VALUE);
 
     public IntOption batchSize = new IntOption("batchSize", 'b',
             "The number of instances to observe between model updates.", 500,
@@ -129,8 +128,8 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
         this.regionDecider = null;
         this.instanceStore = new InstanceStore(batchesToKeep.getValue());
 
+        this.instancesBuffer = null;
         this.enablePatching = false;
-        this.isBaseTransferred = false;
     }
 
     /**
@@ -141,7 +140,7 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
 
         // Fill the new instance into the Instance Store...
         weka.core.Instance inst = this.instanceConverter.wekaInstance(samoaInstance);
-        if (instancesBuffer != null) {
+        if (this.instancesBuffer != null) {
             this.instancesBuffer.add(inst);
         } else {
             weka.core.Instances tmp = new weka.core.Instances(inst.dataset());
@@ -174,28 +173,46 @@ public class Patching extends AbstractClassifier implements MultiClassClassifier
         // } else {
             // 2) Batch acquisition + update phase
 
-        // TODO remove init phase. Assign baseClassifier with the transferred classifier.
-        if (instancesInBatch < batchSize.getValue()) {
+
+        if (this.instancesInBatch < this.batchSize.getValue()) {
+            return;
         }
+
+        this.instanceStore.addInstances(this.instancesBuffer);
+        Instances currentStore = this.instanceStore.getInstances();
 
         if (this.enablePatching) {
-            if (instancesInBatch >= batchSize.getValue()) {
+            // Update the classifier if allowed
+            // if (!forceNoAdaptation.isSet()) {
+            updateClassifier(this.instancesBuffer);
+            // }
 
-                // Update the classifier if allowed
-                if (!forceNoAdaptation.isSet()) {
-                    updateClassifier(instancesBuffer);
+        } else {
+            // TODO remove init phase.
+            //      Assign baseClassifier with the transferred classifier.
+            try {
+                if (this.baseClassifier == null) {
+                    this.baseClassifier = getBaseClassifier();
                 }
+                this.baseClassifier.buildClassifier(currentStore);
 
-                // and reset the instanceBuffer
-                instancesInBatch = 0; // reset
-                this.instancesBuffer = null;
+            } catch (Exception ex) {
+                System.out.println("Error building baseClassifier.");
             }
+
         }
 
+        // and reset the instanceBuffer
+        this.instancesInBatch = 0; // reset
+        this.instancesBuffer = null; // TODO check correctness
     }
 
     public void setEnablePatching(boolean enablePatching) {
         this.enablePatching = enablePatching;
+    }
+
+    public boolean getEnablePatching() {
+        return this.enablePatching;
     }
 
     /**
