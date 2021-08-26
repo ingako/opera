@@ -21,16 +21,18 @@ def setup_logger(name, log_file, level=logging.INFO):
   return logger
 
 
-num_sample = 40000
+num_sample = 60000
 seed = 42
 delim = ','
+prune_percentage = 0.5
+prune_level=7
 
 max_tree_depths=[10]
 # min_leaf_depths=[1, 10, 20]
 min_leaf_depths=[10]
 n_cat_features = 20
 n_categories_per_cat_feature= 2
-n_classes = 2
+n_classes = 3
 
 
 for max_tree_depth in max_tree_depths:
@@ -41,12 +43,13 @@ for max_tree_depth in max_tree_depths:
         for i in range(n_cat_features * n_categories_per_cat_feature):
             header.append(f"@attribute a{i} {{0,1}}")
 
-        header.append(f"@attribute class {{0,1}}")
+        header.append(f"@attribute class {{0,1,2}}")
         header.append("@data\n")
 
-        output_dir = f'../data/tree/{n_cat_features}/{max_tree_depth}/{min_leaf_depth}'
-        stable_period_logger = setup_logger(f'drift-{seed}', f'{output_dir}/drift-{seed}.log')
+        output_dir = \
+            f'../data/tree/{n_cat_features}/{max_tree_depth}/{prune_level}/{prune_percentage}/'
         Path(output_dir).mkdir(parents=True, exist_ok=True)
+        stable_period_logger = setup_logger(f'drift-{seed}', f'{output_dir}/drift-{seed}.log')
         output_filename = f'{output_dir}/{seed}.arff'
 
         full_tree_stream = RandomTreeGenerator(
@@ -63,13 +66,15 @@ for max_tree_depth in max_tree_depths:
         full_tree_stream.get_depth_info()
 
         pruned_tree_stream = copy.deepcopy(full_tree_stream)
-        pruned_tree_stream.prune_subtrees(prune_level=3, prune_percentage=0.5)
+        pruned_tree_stream.prune_subtrees(prune_level=prune_level, prune_percentage=prune_percentage)
 
         print("after prunning")
         pruned_tree_stream.get_depth_info()
 
 
-        stream = RecurrentDriftStream(stable_period_logger=stable_period_logger)
+        stream = RecurrentDriftStream(stable_period=30000,
+                                      position=30000,
+                                      stable_period_logger=stable_period_logger)
         stream.prepare_for_use([pruned_tree_stream, full_tree_stream])
 
         with open(output_filename, 'w') as out:
