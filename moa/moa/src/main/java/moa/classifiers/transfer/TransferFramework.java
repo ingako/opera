@@ -1,39 +1,36 @@
-package moa.classifiers.transfer;
+package moa.classifiers.meta;
 
 import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
-import com.yahoo.labs.samoa.instances.SamoaToWekaInstanceConverter;
 import moa.capabilities.CapabilitiesHandler;
 import moa.capabilities.Capability;
 import moa.capabilities.ImmutableCapabilities;
 import moa.classifiers.AbstractClassifier;
+import moa.classifiers.Classifier;
 import moa.classifiers.MultiClassClassifier;
-import moa.classifiers.core.AttributeSplitSuggestion;
 import moa.classifiers.core.attributeclassobservers.AttributeClassObserver;
 import moa.classifiers.core.attributeclassobservers.GaussianNumericAttributeClassObserver;
 import moa.classifiers.core.attributeclassobservers.NominalAttributeClassObserver;
 import moa.classifiers.core.driftdetection.ChangeDetector;
-import moa.classifiers.core.splitcriteria.SplitCriterion;
-import moa.classifiers.drift.DriftDetectionMethodClassifier;
-import moa.classifiers.meta.AdaptiveRandomForest;
-import moa.classifiers.meta.OzaBoost;
-import moa.classifiers.patching.Patching;
 import moa.core.AutoExpandVector;
-import moa.core.DoubleVector;
-import moa.core.Measurement;
+import moa.core.Utils;
 import moa.options.ClassOption;
 import com.yahoo.labs.samoa.instances.Instance;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Random;
 
 public class TransferFramework extends AbstractClassifier implements MultiClassClassifier, CapabilitiesHandler {
 
     private static final long serialVersionUID = 1L;
 
-    public ClassOption classifierOption = new ClassOption("classifierOption", 'p',
-            "Patching classifier options", OzaBoost.class, "OzaBoost");
+    // public ClassOption baseLearnerOption = new ClassOption("baseLearner", 'p',
+    //         "Patching classifier options", OzaBoost.class, "OzaBoost");
+
+    public ClassOption baseLearnerOption = new ClassOption("baseLearner", 'p',
+            "Classifier to train.", Classifier.class, "trees.HoeffdingTree");
 
     public ClassOption driftDetectionMethodOption = new ClassOption("driftDetectionMethod", 'd',
             "Change detector for drifts and its parameters", ChangeDetector.class, "ADWINChangeDetector -a 1.0E-3");
@@ -55,47 +52,67 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     public FlagOption forceEnableTransferOption = new FlagOption("forceEnableTransfer", 'x', "Force enable transfer");
 
-    protected AutoExpandVector<AbstractClassifier> classifierRepo;
-    protected AbstractClassifier classifier;
+    protected AutoExpandVector<Classifier> classifierRepo;
+    protected Classifier classifier;
     protected ChangeDetector driftDetectionMethod;
-    protected ArrayDeque<Instance> obsInstanceStore;
-    protected ArrayDeque<Instance> errorRegionInstanceStore;
+    protected ArrayList<Instance> obsInstanceStore;
+    protected ArrayList<Integer> obsPredictionResults;
+    protected ArrayList<Instance> errorRegionInstanceStore;
+    protected ArrayDeque<Instance> aproposRegionInstanceStore;
     protected TrueError trueError;
 
-    protected AbstractClassifier errorRegionClassifier;
-    protected AbstractClassifier patchClassifier;
-    protected AbstractClassifier emptyClassifier;
+    protected Classifier errorRegionClassifier;
+    protected Classifier patchClassifier;
+    protected Classifier emptyClassifier;
 
     public boolean isRandomizable() {
         return true;
     }
 
+    int patchCount = 0;
+    int classifierCount = 0;
     @Override
-    public double[] getVotesForInstance(Instance samoaInstance) {
-        return this.classifier.getVotesForInstance(samoaInstance);
+    public double[] getVotesForInstance(Instance inst) {
+        if (this.patchClassifier != null) {
+            Instance newInstance = inst.copy();
+            newInstance.insertAttributeAt(0);
+            newInstance.setValue(0, inst.classValue());
+            if (Utils.maxIndex(this.errorRegionClassifier.getVotesForInstance(newInstance)) == 1) {
+                patchCount++;
+                System.out.println("patching="+patchCount+"|classifierCount="+classifierCount);
+                return this.patchClassifier.getVotesForInstance(inst);
+            } else {
+                classifierCount++;
+                System.out.println("patching="+patchCount+"|classifierCount="+classifierCount);
+            }
+        }
+
+        return this.classifier.getVotesForInstance(inst);
     }
 
     @Override
     public void resetLearningImpl() {
         if (this.classifier == null) {
-            this.classifier = (AbstractClassifier) getPreparedClassOption(this.classifierOption);
-            this.emptyClassifier = (AbstractClassifier) this.classifier.copy();
+            this.classifier = (Classifier) getPreparedClassOption(this.baseLearnerOption);
+            this.emptyClassifier = this.classifier.copy();
         }
         this.classifier.resetLearning();
         this.classifierRepo = new AutoExpandVector<>();
         this.driftDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.driftDetectionMethodOption)).copy();
         this.obsInstanceStore = null;
+        this.obsPredictionResults = null;
         this.errorRegionInstanceStore = null;
+        this.aproposRegionInstanceStore = null;
         this.trueError = null;
 
-        AbstractClassifier errorRegionClassifier = null;
-        AbstractClassifier patchClassifier = null;
+        this.errorRegionClassifier = null;
+        this.patchClassifier = null;
     }
 
     @Override
     public void trainOnInstanceImpl(Instance inst) {
         if (this.classifier == null) {
-            this.classifier = (OzaBoost) getPreparedClassOption(this.classifierOption);
+            this.classifier = (Classifier) getPreparedClassOption(this.baseLearnerOption);
         }
 
         int errorCount = this.classifier.correctlyClassifies(inst) ? 0 : 1;
@@ -105,8 +122,10 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             this.driftDetectionMethod.resetLearning();
 
             this.classifierRepo.add(this.classifier);
-            this.obsInstanceStore = new ArrayDeque<>();
-            this.errorRegionInstanceStore = new ArrayDeque<>();
+            this.obsInstanceStore = new ArrayList<>();
+            this.obsPredictionResults = new ArrayList<>();
+            this.errorRegionInstanceStore = new ArrayList<>();
+            this.aproposRegionInstanceStore= new ArrayDeque<>();
 
             this.trueError = new TrueError(
                     this.windowSizeOption.getValue(),
@@ -123,11 +142,26 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             }
         }
 
-        if (this.obsInstanceStore == null) {
-            this.classifier.trainOnInstanceImpl(inst);
+        if (this.patchClassifier != null) {
+            // train the patch or the transferred model based on if instance is in error region
+            Instance newInstance = inst.copy();
+            newInstance.insertAttributeAt(0);
+            newInstance.setValue(0, inst.classValue());
+            if (errorCount == 1) {
+                // this.errorRegionInstanceStore.add(inst);
+                newInstance.setClassValue(1);
+                this.patchClassifier.trainOnInstance(inst);
+            } else {
+                newInstance.setClassValue(0);
+            }
+            this.errorRegionClassifier.trainOnInstance(newInstance);
+
+        } else if (this.obsInstanceStore == null) {
+            this.classifier.trainOnInstance(inst);
 
         } else {
             this.obsInstanceStore.add(inst);
+            this.obsPredictionResults.add(errorCount);
             if (errorCount == 1) {
                 this.errorRegionInstanceStore.add(inst);
             }
@@ -136,11 +170,11 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                 this.driftDetectionMethod.resetLearning();
                 System.out.println("instance store size: " + obsInstanceStore.size());
 
+                boolean enableTransfer = false;
                 if (this.forceDisableTransferOption.isSet()) {
-                    this.classifier.resetLearning();
 
                 } else if (this.forceEnableTransferOption.isSet()) {
-                    // this.classifier.setEnablePatching(true);
+                    enableTransfer = true;
 
                 } else {
                     PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
@@ -150,14 +184,34 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                     double complexity = phantomTree.getConstructionComplexity(obsInstanceStore);
                     System.out.println("regional=" + regionalComplexity + " | full=" + complexity);
                     if (regionalComplexity < complexity) {
-                        // this.classifier.setEnablePatching(true);
-                    } else {
-                        this.classifier.resetLearning();
+                        enableTransfer = true;
                     }
                 }
 
-                for (Instance obsInstance : obsInstanceStore) {
-                    this.classifier.trainOnInstanceImpl(obsInstance);
+                if (enableTransfer) {
+                    this.errorRegionClassifier = this.emptyClassifier.copy();
+                    this.patchClassifier = this.emptyClassifier.copy();
+
+                    for (int idx = 0; idx < this.obsInstanceStore.size(); idx++) {
+                        Instance obsInstance = this.obsInstanceStore.get(idx);
+                        Instance newInstance = obsInstance.copy();
+                        newInstance.insertAttributeAt(0);
+                        newInstance.setValue(0, obsInstance.classValue());
+
+                        this.errorRegionClassifier.trainOnInstance(newInstance);
+
+                        if (this.obsPredictionResults.get(idx) == 1) {
+                            this.patchClassifier.trainOnInstance(newInstance);
+                        } else  {
+                            this.classifier.trainOnInstance(obsInstance);
+                        }
+                    }
+
+                } else {
+                    this.classifier.resetLearning();
+                    for (Instance obsInstance : obsInstanceStore) {
+                        this.classifier.trainOnInstance(obsInstance);
+                    }
                 }
 
                 this.obsInstanceStore = null;

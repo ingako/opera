@@ -19,6 +19,9 @@
  */
 package moa.classifiers.meta;
 
+import moa.capabilities.CapabilitiesHandler;
+import moa.capabilities.Capability;
+import moa.capabilities.ImmutableCapabilities;
 import moa.classifiers.AbstractClassifier;
 import moa.classifiers.Classifier;
 import moa.classifiers.MultiClassClassifier;
@@ -37,7 +40,7 @@ import com.yahoo.labs.samoa.instances.Instances;
  * Brzezinski and Stefanowski in "Reacting to Different Types of Concept Drift:
  * The Accuracy Updated Ensemble Algorithm", IEEE Trans. Neural Netw, 2013.
  */
-public class AccuracyUpdatedEnsemble extends AbstractClassifier implements MultiClassClassifier {
+public class AccuracyUpdatedEnsemble extends AbstractClassifier implements MultiClassClassifier, CapabilitiesHandler {
 
 	private static final long serialVersionUID = 1L;
 
@@ -374,6 +377,14 @@ public class AccuracyUpdatedEnsemble extends AbstractClassifier implements Multi
 		for (int num = 0; num < this.chunkSizeOption.getValue(); num++) {
 			classifierToTrain.trainOnInstance(this.currentChunk.instance(num));
 		}
+	}
+
+	@Override
+	public ImmutableCapabilities defineImmutableCapabilities() {
+		if (this.getClass() == AccuracyUpdatedEnsemble.class)
+			return new ImmutableCapabilities(Capability.VIEW_STANDARD, Capability.VIEW_LITE);
+		else
+			return new ImmutableCapabilities(Capability.VIEW_STANDARD);
 	}
 
 }

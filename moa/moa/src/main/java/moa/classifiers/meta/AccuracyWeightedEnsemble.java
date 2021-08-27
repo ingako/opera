@@ -20,6 +20,10 @@
 package moa.classifiers.meta;
 
 import java.util.Random;
+
+import moa.capabilities.CapabilitiesHandler;
+import moa.capabilities.Capability;
+import moa.capabilities.ImmutableCapabilities;
 import moa.classifiers.AbstractClassifier;
 import moa.classifiers.Classifier;
 import moa.classifiers.MultiClassClassifier;
@@ -38,7 +42,7 @@ import moa.core.Utils;
  * The Accuracy Weighted Ensemble classifier as proposed by Wang et al. in
  * "Mining concept-drifting data streams using ensemble classifiers", KDD 2003.
  */
-public class AccuracyWeightedEnsemble extends AbstractClassifier implements MultiClassClassifier {
+public class AccuracyWeightedEnsemble extends AbstractClassifier implements MultiClassClassifier, CapabilitiesHandler {
 
     @Override
     public String getPurposeString() {
@@ -458,4 +462,13 @@ public class AccuracyWeightedEnsemble extends AbstractClassifier implements Mult
         this.ensemble = newEnsemble;
         this.ensembleWeights = newEnsembleWeights;
     }
+
+    @Override
+    public ImmutableCapabilities defineImmutableCapabilities() {
+        if (this.getClass() == AccuracyWeightedEnsemble.class)
+            return new ImmutableCapabilities(Capability.VIEW_STANDARD, Capability.VIEW_LITE);
+        else
+            return new ImmutableCapabilities(Capability.VIEW_STANDARD);
+    }
+
 }

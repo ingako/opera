@@ -1,33 +1,21 @@
-package moa.classifiers.transfer;
+package moa.classifiers.meta;
 
-import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
-import com.yahoo.labs.samoa.instances.Attribute;
 import moa.capabilities.CapabilitiesHandler;
 import moa.capabilities.Capability;
 import moa.capabilities.ImmutableCapabilities;
-import moa.classifiers.AbstractClassifier;
 import moa.classifiers.MultiClassClassifier;
 import moa.classifiers.core.AttributeSplitSuggestion;
 import moa.classifiers.core.attributeclassobservers.AttributeClassObserver;
-import moa.classifiers.core.attributeclassobservers.GaussianNumericAttributeClassObserver;
-import moa.classifiers.core.attributeclassobservers.NominalAttributeClassObserver;
-import moa.classifiers.core.attributeclassobservers.NullAttributeClassObserver;
-import moa.classifiers.core.conditionaltests.InstanceConditionalBinaryTest;
 import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
 import moa.classifiers.core.conditionaltests.NominalAttributeBinaryTest;
 import moa.classifiers.core.conditionaltests.NumericAttributeBinaryTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
-import moa.classifiers.patching.Patching;
 import moa.classifiers.trees.HoeffdingTree;
 import moa.core.AutoExpandVector;
-import moa.core.DoubleVector;
 import com.yahoo.labs.samoa.instances.Instance;
-import moa.core.SizeOf;
 import moa.core.Utils;
-import moa.options.ClassOption;
-import org.jfree.util.ArrayUtils;
 
 import java.util.*;
 
@@ -448,9 +436,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         this.instanceStore = new ArrayDeque<>();
     }
 
-    public double getConstructionComplexity(ArrayDeque<Instance> instances) {
+    public double getConstructionComplexity(ArrayList<Instance> instances) {
         for (Instance inst : instances) {
-            super.trainOnInstanceImpl(inst);
+            super.trainOnInstance(inst);
             this.instanceStore.offer(inst);
         }
 
