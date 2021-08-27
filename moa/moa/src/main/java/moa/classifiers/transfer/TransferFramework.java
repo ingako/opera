@@ -17,14 +17,13 @@ import moa.classifiers.core.driftdetection.ChangeDetector;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
 import moa.classifiers.drift.DriftDetectionMethodClassifier;
 import moa.classifiers.meta.AdaptiveRandomForest;
+import moa.classifiers.meta.OzaBoost;
 import moa.classifiers.patching.Patching;
 import moa.core.AutoExpandVector;
 import moa.core.DoubleVector;
 import moa.core.Measurement;
 import moa.options.ClassOption;
 import com.yahoo.labs.samoa.instances.Instance;
-import moa.options.WEKAClassOption;
-import weka.classifiers.Classifier;
 
 import java.util.ArrayDeque;
 import java.util.Random;
@@ -33,8 +32,8 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     private static final long serialVersionUID = 1L;
 
-    public ClassOption patchingClassifierOption = new ClassOption("patchingClassifierOption", 'p',
-            "Patching classifier options", Patching.class, "Patching");
+    public ClassOption classifierOption = new ClassOption("classifierOption", 'p',
+            "Patching classifier options", OzaBoost.class, "OzaBoost");
 
     public ClassOption driftDetectionMethodOption = new ClassOption("driftDetectionMethod", 'd',
             "Change detector for drifts and its parameters", ChangeDetector.class, "ADWINChangeDetector -a 1.0E-3");
@@ -52,16 +51,20 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             "The number of instances to observe for testing convergence.",
             50, 0, Integer.MAX_VALUE);
 
-    public FlagOption forceDisablePatchingOption = new FlagOption("froceDisablePatching", 'e', "Disable patching as a benchmark");
+    public FlagOption forceDisableTransferOption = new FlagOption("froceDisableTransfer", 'e', "Force disable transfer");
 
-    public FlagOption forceEnablePatchingOption = new FlagOption("forceEnablePatching", 'x', "Force enable patching as a benchmark");
+    public FlagOption forceEnableTransferOption = new FlagOption("forceEnableTransfer", 'x', "Force enable transfer");
 
-    protected AutoExpandVector<Patching> classifierRepo;
-    protected Patching classifier;
+    protected AutoExpandVector<AbstractClassifier> classifierRepo;
+    protected AbstractClassifier classifier;
     protected ChangeDetector driftDetectionMethod;
     protected ArrayDeque<Instance> obsInstanceStore;
     protected ArrayDeque<Instance> errorRegionInstanceStore;
     protected TrueError trueError;
+
+    protected AbstractClassifier errorRegionClassifier;
+    protected AbstractClassifier patchClassifier;
+    protected AbstractClassifier emptyClassifier;
 
     public boolean isRandomizable() {
         return true;
@@ -74,18 +77,25 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     @Override
     public void resetLearningImpl() {
+        if (this.classifier == null) {
+            this.classifier = (AbstractClassifier) getPreparedClassOption(this.classifierOption);
+            this.emptyClassifier = (AbstractClassifier) this.classifier.copy();
+        }
+        this.classifier.resetLearning();
         this.classifierRepo = new AutoExpandVector<>();
-        this.classifier= null;
         this.driftDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.driftDetectionMethodOption)).copy();
         this.obsInstanceStore = null;
         this.errorRegionInstanceStore = null;
         this.trueError = null;
+
+        AbstractClassifier errorRegionClassifier = null;
+        AbstractClassifier patchClassifier = null;
     }
 
     @Override
     public void trainOnInstanceImpl(Instance inst) {
         if (this.classifier == null) {
-            this.classifier = (Patching) getPreparedClassOption(this.patchingClassifierOption);
+            this.classifier = (OzaBoost) getPreparedClassOption(this.classifierOption);
         }
 
         int errorCount = this.classifier.correctlyClassifies(inst) ? 0 : 1;
@@ -122,18 +132,15 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                 this.errorRegionInstanceStore.add(inst);
             }
 
-            // weka.classifiers.trees.RandomForest randomForest = (weka.classifiers.trees.RandomForest) this.baseClassifier;
-            // randomForest.getMembershipValues();
-
             if (this.trueError.isStable(errorCount)) {
                 this.driftDetectionMethod.resetLearning();
                 System.out.println("instance store size: " + obsInstanceStore.size());
 
-                if (this.forceDisablePatchingOption.isSet()) {
+                if (this.forceDisableTransferOption.isSet()) {
                     this.classifier.resetLearning();
 
-                } else if (this.forceEnablePatchingOption.isSet()) {
-                    this.classifier.setEnablePatching(true);
+                } else if (this.forceEnableTransferOption.isSet()) {
+                    // this.classifier.setEnablePatching(true);
 
                 } else {
                     PhantomTree phantomTree = (PhantomTree) getPreparedClassOption(this.phantomTreeOption);
@@ -143,9 +150,9 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                     double complexity = phantomTree.getConstructionComplexity(obsInstanceStore);
                     System.out.println("regional=" + regionalComplexity + " | full=" + complexity);
                     if (regionalComplexity < complexity) {
-                        this.classifier.setEnablePatching(true);
+                        // this.classifier.setEnablePatching(true);
                     } else {
-                        this.classifier.resetLearningImpl();
+                        this.classifier.resetLearning();
                     }
                 }
 
