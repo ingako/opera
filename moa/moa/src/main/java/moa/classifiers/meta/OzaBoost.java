@@ -120,6 +120,7 @@ public class OzaBoost extends AbstractClassifier implements MultiClassClassifier
         return Math.log(1.0 / Bm);
     }
 
+    @Override
     public double[] getVotesForInstance(Instance inst) {
         DoubleVector combinedVote = new DoubleVector();
         for (int i = 0; i < this.ensemble.length; i++) {
@@ -138,6 +139,7 @@ public class OzaBoost extends AbstractClassifier implements MultiClassClassifier
         return combinedVote.getArrayRef();
     }
 
+    @Override
     public boolean isRandomizable() {
         return true;
     }
