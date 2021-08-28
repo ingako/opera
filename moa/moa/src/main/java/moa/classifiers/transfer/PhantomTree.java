@@ -1,4 +1,4 @@
-package moa.classifiers.meta;
+package moa.classifiers.transfer;
 
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
@@ -106,12 +106,14 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     private ArrayDeque<PhantomNode> growPhantomBranches() {
         // init candidate phantom branches
+        System.out.println("init candidate phantom branches");
         addInstancesToLeaves(this.instanceStore);
         ArrayDeque<PhantomNode> phantomRootParents = initPhantomRootParents();
         if (phantomRootParents.size() == 0) {
             throw new NullPointerException("No phantom root parent constructed.");
         }
 
+        System.out.println("first level phantom splits");
         // perform first level phantom splits to find phantom roots
         AutoExpandVector<PhantomNode> phantomRoots = new AutoExpandVector<>();
         for (PhantomNode parent : phantomRootParents) {
@@ -191,6 +193,10 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             return;
         }
         Arrays.sort(allSplitSuggestions);
+        allSplitSuggestions = Arrays.copyOfRange(
+                allSplitSuggestions,
+                allSplitSuggestions.length-11,
+                allSplitSuggestions.length-1);
 
         for (AttributeSplitSuggestion splitDecision : allSplitSuggestions) {
             if (splitDecision.splitTest == null) {
@@ -438,7 +444,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
     public double getConstructionComplexity(ArrayList<Instance> instances) {
         for (Instance inst : instances) {
-            super.trainOnInstance(inst);
+            super.trainOnInstanceImpl(inst);
             this.instanceStore.offer(inst);
         }
 
@@ -464,7 +470,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
 
         } else if (this.trainingWeightSeenByModel > this.obsPeriodOption.getValue()
                     || inst == null) {
-            System.out.println("MOA description:");
+            System.out.println("train: MOA description:");
             StringBuilder description = new StringBuilder();
             this.treeRoot.describeSubtree(this, description, 4);
             System.out.println(description.toString());
@@ -475,7 +481,7 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             // printTree();
         } else if (this.trainingWeightSeenByModel == 99999) {
             instanceStore.offer(inst);
-            System.out.println("MOA description:");
+            System.out.println("train: MOA description:");
             StringBuilder description = new StringBuilder();
             this.treeRoot.describeSubtree(this, description, 4);
             System.out.println(description.toString());
