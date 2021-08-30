@@ -38,6 +38,9 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             7, 0, Integer.MAX_VALUE);
 
     ArrayDeque<Instance> instanceStore = new ArrayDeque<>();
+    double avgPhantomBranchDepth;
+    double minPhantomBranchDepth;
+    double maxPhantomBranchDepth;
 
     public class PhantomNode extends ActiveLearningNode {
 
@@ -143,7 +146,11 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
             System.out.println("Phantom Branch " + i + ": " + branchStringBuilder);
         }
 
-        System.out.println("min=" + min_depth + "|max=" + max_depth + "|avg=" + sum_depth / phantomLeaves.size());
+        // System.out.println("min=" + min_depth + "|max=" + max_depth + "|avg=" + sum_depth / phantomLeaves.size());
+
+        this.avgPhantomBranchDepth = sum_depth / phantomLeaves.size();
+        this.minPhantomBranchDepth = min_depth;
+        this.maxPhantomBranchDepth = max_depth;
 
         return phantomLeaves;
     }
@@ -440,6 +447,10 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         this.leafpredictionOption.setChosenLabel("MC");
         this.binarySplitsOption.setValue(true);
         this.instanceStore = new ArrayDeque<>();
+
+        this.avgPhantomBranchDepth = -1;
+        this.minPhantomBranchDepth = -1;
+        this.maxPhantomBranchDepth = -1;
     }
 
     public double getConstructionComplexity(ArrayList<Instance> instances) {
