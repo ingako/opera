@@ -42,15 +42,19 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             "The confidence value for computing true error during the observation period", 0.1, 0.0, 1.0);
 
     public FloatOption convThresholdOption = new FloatOption("convThreshold", 'b',
-            "The convergence threshold for true error during the observation period", 0.15, 0.0, 1.0);
+            "The convergence threshold for true error during the observation period", 0.1, 0.0, 1.0);
 
     public IntOption obsWindowSizeOption = new IntOption("obsWindowSize", 'n',
             "The number of instances to observe for testing convergence.",
             50, 0, Integer.MAX_VALUE);
 
-    public IntOption bgWindowSizeOption = new IntOption("bgWindowSize", 'o',
+    public IntOption perfWindowSizeOption = new IntOption("perfWindowSize", 'o',
             "The number of instances to observe for assessing the performance of background classifier.",
             100, 0, Integer.MAX_VALUE);
+
+    public IntOption driftLocationOption = new IntOption("driftLocation", 'f',
+            "-1 turns on drift detector",
+            -1, -1, Integer.MAX_VALUE);
 
     public FlagOption disablePatchingOption = new FlagOption("disablePatching", 'x', "Force disable patching");
 
@@ -77,8 +81,10 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     // background learner specific
     protected Classifier bgClassifier;
+    protected ArrayDeque<Integer> fgErrorWindow;
     protected ArrayDeque<Integer> bgErrorWindow;
-    protected int bgErrorWindowSum;
+    protected double fgErrorWindowSum;
+    protected double bgErrorWindowSum;
 
     public boolean isRandomizable() { return true; }
 
@@ -125,7 +131,12 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         this.errorInstanceStoreComplexity = new InstanceStoreComplexity();
         this.aproposInstanceStoreComplexity = new InstanceStoreComplexity();
 
-        // TODO bg
+        // bg related
+        this.bgClassifier = null;
+        this.fgErrorWindow = null;
+        this.bgErrorWindow = null;
+        this.fgErrorWindowSum = 0;
+        this.bgErrorWindowSum = 0;
 
     }
 
@@ -137,29 +148,11 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
         int errorCount = this.classifier.correctlyClassifies(inst) ? 0 : 1;
 
-        this.driftDetectionMethod.input(errorCount);
-        if (this.driftDetectionMethod.getChange()) {
-            this.driftDetectionMethod.resetLearning();
+        handleDrift(errorCount);
 
-            this.classifierRepo.add(this.classifier);
-            this.obsInstanceStore = new ArrayList<>();
-            this.obsPredictionResults = new ArrayList<>();
-            this.errorRegionInstanceStore = new ArrayList<>();
-            this.aproposRegionInstanceStore= new ArrayList<>();
-
-            this.trueError = new TrueError(
-                    this.obsWindowSizeOption.getValue(),
-                    this.convDeltaOption.getValue(),
-                    this.convThresholdOption.getValue(),
-                    this.classifierRandom);
-
-            if (this.classifierRepo.size() == 1) {
-                // classifier is the transferred model
-
-            } else {
-                // TODO
-                throw new NullPointerException("Not supporting cross stream transfer yet.");
-            }
+        // TODO bg
+        if (this.bgClassifier != null) {
+            handleBgClassifier(inst, errorCount);
         }
 
         if (this.patchClassifier != null) {
@@ -196,9 +189,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                 if (this.disablePatchingOption.isSet()) {
 
                 } else {
-                // } else if (this.forceEnableTransferOption.isSet()) {
                     enableTransfer = true;
-                // } else {
                     measureComplexities();
                 }
 
@@ -216,36 +207,86 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                             this.patchClassifier.trainOnInstance(obsInstance);
                             newInstance.setClassValue(1);
                         } else  {
-                            // this.classifier.trainOnInstance(obsInstance);
+                            // TODO train base?
+                            this.classifier.trainOnInstance(obsInstance);
                             newInstance.setClassValue(0);
                         }
 
                         this.errorRegionClassifier.trainOnInstance(newInstance);
                     }
 
-                } else {
-                    this.classifier = this.emptyClassifier.copy();
-                    for (Instance obsInstance : this.obsInstanceStore) {
-                        this.classifier.trainOnInstance(obsInstance);
-                    }
-
-                    // TODO bg
-                    // this.bgClassifier = emptyClassifier.copy();
-                    // this.bgErrorWindow = new ArrayDeque<>();
-                    // for (Instance obsInstance : this.obsInstanceStore) {
-                    //     this.bgClassifier.trainOnInstance(obsInstance);
-                    //     if (this.bgClassifier.correctlyClassifies(obsInstance)) {
-                    //     } else {
-                    //         this.bgErrorWindow.addLast(1);
-                    //         bgErrorWindowSum++;
-                    //     }
-                    // }
                 }
 
                 this.obsInstanceStore = null;
                 this.errorRegionInstanceStore = null;
                 this.aproposRegionInstanceStore = null;
             }
+        }
+    }
+
+    private void handleDrift(int errorCount) {
+        if (this.driftLocationOption.getValue() == -1) {
+            this.driftDetectionMethod.input(errorCount);
+            if (!this.driftDetectionMethod.getChange()) {
+                return;
+            }
+            this.driftDetectionMethod.resetLearning();
+        } else {
+            if (this.trainingWeightSeenByModel() != this.driftLocationOption.getValue()) {
+                return;
+            }
+        }
+
+        if (this.disablePatchingOption.isSet()) {
+            this.bgClassifier = this.emptyClassifier.copy();
+            this.fgErrorWindow = new ArrayDeque<>();
+            this.bgErrorWindow = new ArrayDeque<>();
+            this.fgErrorWindowSum = 0;
+            this.bgErrorWindowSum = 0;
+
+        } else {
+            this.classifierRepo.add(this.classifier);
+            this.obsInstanceStore = new ArrayList<>();
+            this.obsPredictionResults = new ArrayList<>();
+            this.errorRegionInstanceStore = new ArrayList<>();
+            this.aproposRegionInstanceStore = new ArrayList<>();
+
+            this.trueError = new TrueError(
+                    this.obsWindowSizeOption.getValue(),
+                    this.convDeltaOption.getValue(),
+                    this.convThresholdOption.getValue(),
+                    this.classifierRandom);
+
+            if (this.classifierRepo.size() == 1) {
+                // classifier is the transferred model
+
+            } else {
+                // TODO
+                throw new NullPointerException("Not supporting cross stream transfer yet.");
+            }
+        }
+    }
+
+    private void handleBgClassifier(Instance inst, int fgErrorCount) {
+        if (this.fgErrorWindow.size() > this.perfWindowSizeOption.getValue()){
+            this.fgErrorWindowSum -= this.fgErrorWindow.pollFirst();
+        }
+        this.fgErrorWindow.offerLast(fgErrorCount);
+        this.fgErrorWindowSum += fgErrorCount;
+
+        int bgErrorCount = this.bgClassifier.correctlyClassifies(inst) ? 0 : 1;
+        if (this.bgErrorWindow.size() > this.perfWindowSizeOption.getValue()) {
+            this.bgErrorWindowSum -= this.bgErrorWindow.pollFirst();
+        }
+        this.bgErrorWindow.offerLast(bgErrorCount);
+        this.bgErrorWindowSum += bgErrorCount;
+
+        if (this.bgErrorWindowSum / this.perfWindowSizeOption.getValue()
+                > this.fgErrorWindowSum / this.perfWindowSizeOption.getValue()) {
+            this.classifier = this.bgClassifier;
+            this.bgClassifier = null;
+        } else {
+            this.bgClassifier.trainOnInstance(inst);
         }
     }
 
