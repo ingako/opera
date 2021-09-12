@@ -42,7 +42,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             "The confidence value for computing true error during the observation period", 0.1, 0.0, 1.0);
 
     public FloatOption convThresholdOption = new FloatOption("convThreshold", 'b',
-            "The convergence threshold for true error during the observation period", 0.1, 0.0, 1.0);
+            "The convergence threshold for true error during the observation period", 0.15, 0.0, 1.0);
 
     public IntOption obsWindowSizeOption = new IntOption("obsWindowSize", 'n',
             "The number of instances to observe for testing convergence.",
@@ -150,11 +150,6 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
         handleDrift(errorCount);
 
-        // TODO bg
-        if (this.bgClassifier != null) {
-            handleBgClassifier(inst, errorCount);
-        }
-
         if (this.patchClassifier != null) {
             // train the patch or the transferred model based on if instance is in error region
             Instance newInstance = inst.copy();
@@ -169,7 +164,12 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             }
             this.errorRegionClassifier.trainOnInstance(newInstance);
 
+            // TODO handle bg tree
+
         } else if (this.obsInstanceStore == null) {
+            if (this.bgClassifier != null) {
+                handleBgClassifier(inst, errorCount);
+            }
             this.classifier.trainOnInstance(inst);
 
         } else {
@@ -207,8 +207,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                             this.patchClassifier.trainOnInstance(obsInstance);
                             newInstance.setClassValue(1);
                         } else  {
-                            // TODO train base?
-                            this.classifier.trainOnInstance(obsInstance);
+                            // this.classifier.trainOnInstance(obsInstance);
                             newInstance.setClassValue(0);
                         }
 
@@ -282,7 +281,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         this.bgErrorWindowSum += bgErrorCount;
 
         if (this.bgErrorWindowSum / this.perfWindowSizeOption.getValue()
-                > this.fgErrorWindowSum / this.perfWindowSizeOption.getValue()) {
+                < this.fgErrorWindowSum / this.perfWindowSizeOption.getValue()) {
             this.classifier = this.bgClassifier;
             this.bgClassifier = null;
         } else {
