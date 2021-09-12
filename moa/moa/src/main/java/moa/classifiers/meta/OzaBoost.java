@@ -19,6 +19,7 @@
  */
 package moa.classifiers.meta;
 
+import com.github.javacliparser.FloatOption;
 import moa.capabilities.CapabilitiesHandler;
 import moa.capabilities.Capability;
 import moa.capabilities.ImmutableCapabilities;
@@ -73,6 +74,9 @@ public class OzaBoost extends AbstractClassifier implements MultiClassClassifier
     public FlagOption pureBoostOption = new FlagOption("pureBoost", 'p',
             "Boost with weights only; no poisson.");
 
+    public FloatOption lambdaOption = new FloatOption("lambda", 'a',
+            "The lambda parameter for bagging.", 6.0, 1.0, Float.MAX_VALUE);
+
     protected Classifier[] ensemble;
 
     protected double[] scms;
@@ -93,7 +97,7 @@ public class OzaBoost extends AbstractClassifier implements MultiClassClassifier
 
     @Override
     public void trainOnInstanceImpl(Instance inst) {
-        double lambda_d = 1.0;
+        double lambda_d = this.lambdaOption.getValue();
         for (int i = 0; i < this.ensemble.length; i++) {
             double k = this.pureBoostOption.isSet() ? lambda_d : MiscUtils.poisson(lambda_d, this.classifierRandom);
             if (k > 0.0) {
