@@ -56,6 +56,10 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             "-1 turns on drift detector",
             -1, -1, Integer.MAX_VALUE);
 
+    public IntOption minObsPeriod = new IntOption("minObsPeriod", 'm',
+            "The minimum number of instances to observe before testing convergence. -1 to disable.",
+            -1, -1, Integer.MAX_VALUE);
+
     public FlagOption disablePatchingOption = new FlagOption("disablePatching", 'x', "Force disable patching");
 
     protected AutoExpandVector<Classifier> classifierRepo;
@@ -72,6 +76,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     int patchCount;
     int classifierCount;
+    int maxObsPeriodLen;
 
     protected Classifier emptyClassifier;
 
@@ -126,6 +131,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
         this.patchCount = 0;
         this.classifierCount = 0;
+        this.maxObsPeriodLen = 0;
 
         this.obsInstanceStoreComplexity = new InstanceStoreComplexity();
         this.errorInstanceStoreComplexity = new InstanceStoreComplexity();
@@ -152,27 +158,34 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
         if (this.patchClassifier != null) {
             // train the patch or the transferred model based on if instance is in error region
-            Instance newInstance = inst.copy();
-            newInstance.insertAttributeAt(0);
-            newInstance.setValue(0, inst.classValue());
+            // Instance newInstance = inst.copy();
+            // newInstance.insertAttributeAt(0);
+            // newInstance.setValue(0, inst.classValue());
+
+            this.classifier.trainOnInstance(inst);
             if (errorCount == 1) {
-                newInstance.setClassValue(1);
+                // newInstance.setClassValue(1);
                 this.patchClassifier.trainOnInstance(inst);
-            } else {
-                newInstance.setClassValue(0);
-                this.classifier.trainOnInstance(inst);
             }
-            this.errorRegionClassifier.trainOnInstance(newInstance);
+            // else {
+            //     // newInstance.setClassValue(0);
+            //     this.classifier.trainOnInstance(inst);
+            // }
+            // this.errorRegionClassifier.trainOnInstance(newInstance);
 
             // TODO handle bg tree
+            // if (this.bgClassifier != null) {
+            //     handleBgClassifier(inst, errorCount);
+            // }
 
         } else if (this.obsInstanceStore == null) {
-            if (this.bgClassifier != null) {
-                handleBgClassifier(inst, errorCount);
-            }
+            // if (this.bgClassifier != null) {
+            //     handleBgClassifier(inst, errorCount);
+            // }
             this.classifier.trainOnInstance(inst);
 
         } else {
+            this.maxObsPeriodLen = Math.max(this.maxObsPeriodLen, this.obsInstanceStore.size());
             this.obsInstanceStore.add(inst);
             this.obsPredictionResults.add(errorCount);
             if (errorCount == 1) {
@@ -181,45 +194,58 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                 this.aproposRegionInstanceStore.add(inst);
             }
 
-            if (this.trueError.isStable(errorCount)) {
-                this.driftDetectionMethod.resetLearning();
-                System.out.println("instance store size: " + obsInstanceStore.size());
+            if (!this.trueError.isStable(errorCount)) {
+                return;
+            }
 
-                boolean enableTransfer = false;
-                if (this.disablePatchingOption.isSet()) {
+            if (this.minObsPeriod.getValue() > -1 && this.obsInstanceStore.size() < this.minObsPeriod.getValue()) {
+                return;
+            }
 
-                } else {
-                    enableTransfer = true;
-                    measureComplexities();
-                }
+            this.driftDetectionMethod.resetLearning();
+            System.out.println("instance store size: " + obsInstanceStore.size());
 
-                if (enableTransfer) {
-                    this.errorRegionClassifier = this.emptyClassifier.copy();
-                    this.patchClassifier = this.emptyClassifier.copy();
+            boolean enableTransfer = false;
+            if (this.disablePatchingOption.isSet()) {
 
-                    for (int idx = 0; idx < this.obsInstanceStore.size(); idx++) {
-                        Instance obsInstance = this.obsInstanceStore.get(idx);
-                        Instance newInstance = obsInstance.copy();
-                        newInstance.insertAttributeAt(0);
-                        newInstance.setValue(0, obsInstance.classValue());
+            } else {
+                enableTransfer = true;
+                measureComplexities();
+            }
 
-                        if (this.obsPredictionResults.get(idx) == 1) {
-                            this.patchClassifier.trainOnInstance(obsInstance);
-                            newInstance.setClassValue(1);
-                        } else  {
-                            // this.classifier.trainOnInstance(obsInstance);
-                            newInstance.setClassValue(0);
-                        }
+            if (enableTransfer) {
+                this.errorRegionClassifier = this.emptyClassifier.copy();
+                this.patchClassifier = this.emptyClassifier.copy();
 
-                        this.errorRegionClassifier.trainOnInstance(newInstance);
+                for (int idx = 0; idx < this.obsInstanceStore.size(); idx++) {
+                    Instance obsInstance = this.obsInstanceStore.get(idx);
+                    Instance newInstance = obsInstance.copy();
+                    newInstance.insertAttributeAt(0);
+                    newInstance.setValue(0, obsInstance.classValue());
+
+                    this.classifier.trainOnInstance(obsInstance);
+                    if (this.obsPredictionResults.get(idx) == 1) {
+                        this.patchClassifier.trainOnInstance(obsInstance);
+                        newInstance.setClassValue(1);
+                    } else  {
+                        newInstance.setClassValue(0);
                     }
 
+                    this.errorRegionClassifier.trainOnInstance(newInstance);
                 }
-
-                this.obsInstanceStore = null;
-                this.errorRegionInstanceStore = null;
-                this.aproposRegionInstanceStore = null;
             }
+
+            // train bg tree
+            this.bgClassifier = this.emptyClassifier.copy();
+            for (int idx = 0; idx < this.obsInstanceStore.size(); idx++) {
+                Instance obsInstance = this.obsInstanceStore.get(idx);
+                this.bgClassifier.trainOnInstance(obsInstance);
+            }
+
+
+            this.obsInstanceStore = null;
+            this.errorRegionInstanceStore = null;
+            this.aproposRegionInstanceStore = null;
         }
     }
 
@@ -280,10 +306,14 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         this.bgErrorWindow.offerLast(bgErrorCount);
         this.bgErrorWindowSum += bgErrorCount;
 
-        if (this.bgErrorWindowSum / this.perfWindowSizeOption.getValue()
-                < this.fgErrorWindowSum / this.perfWindowSizeOption.getValue()) {
+        if (this.bgErrorWindowSum < this.fgErrorWindowSum) {
             this.classifier = this.bgClassifier;
             this.bgClassifier = null;
+
+            if (this.patchClassifier != null) {
+                this.patchClassifier = null;
+                this.obsInstanceStore = null;
+            }
         } else {
             this.bgClassifier.trainOnInstance(inst);
         }
@@ -410,7 +440,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
     protected moa.core.Measurement[] getModelMeasurementsImpl() {
         return new Measurement[]{
                 new Measurement("instance store size",
-                        this.obsInstanceStore == null ? 0 : this.obsInstanceStore.size()),
+                        this.obsInstanceStore == null ? 0 : this.maxObsPeriodLen),
                 new Measurement("error region instance store size",
                         this.errorRegionInstanceStore == null ? 0 : this.errorRegionInstanceStore.size()),
                 new Measurement("apropos region instance store size",
