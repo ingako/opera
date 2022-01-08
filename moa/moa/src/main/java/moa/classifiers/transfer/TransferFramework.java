@@ -50,7 +50,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     public IntOption perfWindowSizeOption = new IntOption("perfWindowSize", 'o',
             "The number of instances to observe for assessing the performance of background classifier.",
-            100, 0, Integer.MAX_VALUE);
+            500, 0, Integer.MAX_VALUE);
 
     public IntOption driftLocationOption = new IntOption("driftLocation", 'f',
             "-1 turns on drift detector",
@@ -77,6 +77,8 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
     int patchCount;
     int classifierCount;
     int maxObsPeriodLen;
+    int maxErrRegionStoreSize;
+    int maxAprRegionStoreSize;
 
     protected Classifier emptyClassifier;
 
@@ -84,31 +86,46 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
     InstanceStoreComplexity errorInstanceStoreComplexity;
     InstanceStoreComplexity aproposInstanceStoreComplexity;
 
-    // background learner specific
-    protected Classifier bgClassifier;
-    protected ArrayDeque<Integer> fgErrorWindow;
-    protected ArrayDeque<Integer> bgErrorWindow;
-    protected double fgErrorWindowSum;
-    protected double bgErrorWindowSum;
+    // track performances for both the patch learner and the transferred model
+    protected ArrayDeque<Integer> patchErrorWindow;
+    protected ArrayDeque<Integer> transErrorWindow;
+    protected double patchErrorWindowSum;
+    protected double transErrorWindowSum;
 
     public boolean isRandomizable() { return true; }
 
     @Override
     public double[] getVotesForInstance(Instance inst) {
-        if (this.patchClassifier != null) {
-            Instance newInstance = inst.copy();
-            newInstance.insertAttributeAt(0);
-            newInstance.setValue(0, inst.classValue());
-            if (Utils.maxIndex(this.errorRegionClassifier.getVotesForInstance(newInstance)) == 1) {
-                this.patchCount++;
-                return this.patchClassifier.getVotesForInstance(inst);
-            } else {
-                this.classifierCount++;
-                return this.classifier.getVotesForInstance(inst);
-            }
+        if (this.patchClassifier == null) {
+            return this.classifier.getVotesForInstance(inst);
         }
 
+        Instance newInstance = inst.copy();
+        newInstance.insertAttributeAt(0);
+        newInstance.setValue(0, inst.classValue());
+        if (Utils.maxIndex(this.errorRegionClassifier.getVotesForInstance(newInstance)) == 1) {
+            // in error region, check patch performance
+            if (turnOnPatchPrediction()) {
+                this.patchCount++;
+                return this.patchClassifier.getVotesForInstance(inst);
+            }
+
+        }
+
+        this.classifierCount++;
         return this.classifier.getVotesForInstance(inst);
+    }
+
+    private boolean turnOnPatchPrediction() {
+        if (this.patchErrorWindow.size() < this.perfWindowSizeOption.getValue()) {
+            return true;
+        }
+
+        if (this.patchErrorWindowSum < this.transErrorWindowSum) {
+            return true;
+        }
+
+        return false;
     }
 
     @Override
@@ -132,17 +149,18 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         this.patchCount = 0;
         this.classifierCount = 0;
         this.maxObsPeriodLen = 0;
+        this.maxErrRegionStoreSize = 0;
+        this.maxAprRegionStoreSize = 0;
 
         this.obsInstanceStoreComplexity = new InstanceStoreComplexity();
         this.errorInstanceStoreComplexity = new InstanceStoreComplexity();
         this.aproposInstanceStoreComplexity = new InstanceStoreComplexity();
 
-        // bg related
-        this.bgClassifier = null;
-        this.fgErrorWindow = null;
-        this.bgErrorWindow = null;
-        this.fgErrorWindowSum = 0;
-        this.bgErrorWindowSum = 0;
+        // patch related
+        this.patchErrorWindow = new ArrayDeque<>();
+        this.transErrorWindow = new ArrayDeque<>();
+        this.patchErrorWindowSum = 0;
+        this.transErrorWindowSum = 0;
 
     }
 
@@ -153,45 +171,51 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         }
 
         int errorCount = this.classifier.correctlyClassifies(inst) ? 0 : 1;
-
         handleDrift(errorCount);
 
         if (this.patchClassifier != null) {
-            // train the patch or the transferred model based on if instance is in error region
-            // Instance newInstance = inst.copy();
-            // newInstance.insertAttributeAt(0);
-            // newInstance.setValue(0, inst.classValue());
-
+            // train transferred model
             this.classifier.trainOnInstance(inst);
+            // update transferred model performance
+            if (this.transErrorWindow.size() > this.perfWindowSizeOption.getValue()){
+                this.transErrorWindowSum -= this.transErrorWindow.pollFirst();
+            }
+            this.transErrorWindow.offerLast(errorCount);
+            this.transErrorWindowSum += errorCount;
+
+            // train patch
+            int patchErrorCount = 0;
             if (errorCount == 1) {
-                // newInstance.setClassValue(1);
+                // keep track of patch to either turn on/off patch prediction
+                if (!this.patchClassifier.correctlyClassifies(inst)) {
+                    patchErrorCount = 1;
+                }
+
                 this.patchClassifier.trainOnInstance(inst);
             }
-            // else {
-            //     // newInstance.setClassValue(0);
-            //     this.classifier.trainOnInstance(inst);
-            // }
-            // this.errorRegionClassifier.trainOnInstance(newInstance);
 
-            // TODO handle bg tree
-            // if (this.bgClassifier != null) {
-            //     handleBgClassifier(inst, errorCount);
-            // }
+            // update patch performance
+            if (this.patchErrorWindow.size() > this.perfWindowSizeOption.getValue()){
+                this.patchErrorWindowSum -= this.patchErrorWindow.pollFirst();
+            }
+            this.patchErrorWindow.offerLast(patchErrorCount);
+            this.patchErrorWindowSum += patchErrorCount;
 
         } else if (this.obsInstanceStore == null) {
-            // if (this.bgClassifier != null) {
-            //     handleBgClassifier(inst, errorCount);
-            // }
+            // either from source or a new model in target
             this.classifier.trainOnInstance(inst);
 
         } else {
-            this.maxObsPeriodLen = Math.max(this.maxObsPeriodLen, this.obsInstanceStore.size());
             this.obsInstanceStore.add(inst);
+            this.maxObsPeriodLen = Math.max(this.maxObsPeriodLen, this.obsInstanceStore.size());
+
             this.obsPredictionResults.add(errorCount);
             if (errorCount == 1) {
                 this.errorRegionInstanceStore.add(inst);
+                this.maxErrRegionStoreSize = Math.max(this.maxErrRegionStoreSize, this.errorRegionInstanceStore.size());
             } else {
                 this.aproposRegionInstanceStore.add(inst);
+                this.maxAprRegionStoreSize = Math.max(this.maxAprRegionStoreSize, this.aproposRegionInstanceStore.size());
             }
 
             if (!this.trueError.isStable(errorCount)) {
@@ -233,15 +257,13 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
                     this.errorRegionClassifier.trainOnInstance(newInstance);
                 }
+            } else {
+                this.classifier = this.emptyClassifier.copy();
+                for (int idx = 0; idx < this.obsInstanceStore.size(); idx++) {
+                    Instance obsInstance = this.obsInstanceStore.get(idx);
+                    this.classifier.trainOnInstance(obsInstance);
+                }
             }
-
-            // train bg tree
-            this.bgClassifier = this.emptyClassifier.copy();
-            for (int idx = 0; idx < this.obsInstanceStore.size(); idx++) {
-                Instance obsInstance = this.obsInstanceStore.get(idx);
-                this.bgClassifier.trainOnInstance(obsInstance);
-            }
-
 
             this.obsInstanceStore = null;
             this.errorRegionInstanceStore = null;
@@ -262,61 +284,26 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             }
         }
 
-        if (this.disablePatchingOption.isSet()) {
-            this.bgClassifier = this.emptyClassifier.copy();
-            this.fgErrorWindow = new ArrayDeque<>();
-            this.bgErrorWindow = new ArrayDeque<>();
-            this.fgErrorWindowSum = 0;
-            this.bgErrorWindowSum = 0;
+        this.classifierRepo.add(this.classifier);
+        this.obsInstanceStore = new ArrayList<>();
+        this.obsPredictionResults = new ArrayList<>();
+        this.errorRegionInstanceStore = new ArrayList<>();
+        this.aproposRegionInstanceStore = new ArrayList<>();
+
+        this.trueError = new TrueError(
+                this.obsWindowSizeOption.getValue(),
+                this.convDeltaOption.getValue(),
+                this.convThresholdOption.getValue(),
+                this.classifierRandom);
+
+        if (this.classifierRepo.size() == 1) {
+            // hack; classifier is the transferred model
 
         } else {
-            this.classifierRepo.add(this.classifier);
-            this.obsInstanceStore = new ArrayList<>();
-            this.obsPredictionResults = new ArrayList<>();
-            this.errorRegionInstanceStore = new ArrayList<>();
-            this.aproposRegionInstanceStore = new ArrayList<>();
-
-            this.trueError = new TrueError(
-                    this.obsWindowSizeOption.getValue(),
-                    this.convDeltaOption.getValue(),
-                    this.convThresholdOption.getValue(),
-                    this.classifierRandom);
-
-            if (this.classifierRepo.size() == 1) {
-                // classifier is the transferred model
-
-            } else {
-                // TODO
-                throw new NullPointerException("Not supporting cross stream transfer yet.");
-            }
+            // TODO
+            throw new NullPointerException("Not supporting cross stream transfer yet.");
         }
-    }
-
-    private void handleBgClassifier(Instance inst, int fgErrorCount) {
-        if (this.fgErrorWindow.size() > this.perfWindowSizeOption.getValue()){
-            this.fgErrorWindowSum -= this.fgErrorWindow.pollFirst();
-        }
-        this.fgErrorWindow.offerLast(fgErrorCount);
-        this.fgErrorWindowSum += fgErrorCount;
-
-        int bgErrorCount = this.bgClassifier.correctlyClassifies(inst) ? 0 : 1;
-        if (this.bgErrorWindow.size() > this.perfWindowSizeOption.getValue()) {
-            this.bgErrorWindowSum -= this.bgErrorWindow.pollFirst();
-        }
-        this.bgErrorWindow.offerLast(bgErrorCount);
-        this.bgErrorWindowSum += bgErrorCount;
-
-        if (this.bgErrorWindowSum < this.fgErrorWindowSum) {
-            this.classifier = this.bgClassifier;
-            this.bgClassifier = null;
-
-            if (this.patchClassifier != null) {
-                this.patchClassifier = null;
-                this.obsInstanceStore = null;
-            }
-        } else {
-            this.bgClassifier.trainOnInstance(inst);
-        }
+        // }
     }
 
     private void measureComplexities() {
@@ -439,12 +426,11 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     protected moa.core.Measurement[] getModelMeasurementsImpl() {
         return new Measurement[]{
-                new Measurement("instance store size",
-                        this.obsInstanceStore == null ? 0 : this.maxObsPeriodLen),
+                new Measurement("instance store size", this.maxObsPeriodLen),
                 new Measurement("error region instance store size",
-                        this.errorRegionInstanceStore == null ? 0 : this.errorRegionInstanceStore.size()),
+                        this.maxErrRegionStoreSize),
                 new Measurement("apropos region instance store size",
-                        this.aproposRegionInstanceStore == null ? 0 : this.aproposRegionInstanceStore.size()),
+                        this.maxAprRegionStoreSize),
 
                 new Measurement("full region time",
                         this.obsInstanceStoreComplexity.time),
