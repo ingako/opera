@@ -125,6 +125,15 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         }
 
         ArrayDeque<PhantomNode> phantomLeaves = new ArrayDeque<>();
+
+        // TODO if the first level split produces zero children, the complexity equals 1.
+        if (phantomRoots.size() == 0) {
+            this.avgPhantomBranchDepth = 1;
+            this.minPhantomBranchDepth = 1;
+            this.maxPhantomBranchDepth = 1;
+            return phantomLeaves;
+        }
+
         int min_depth = Integer.MAX_VALUE;
         int max_depth = 0;
         double sum_depth = 0.0;
@@ -468,6 +477,10 @@ public class PhantomTree extends HoeffdingTree implements MultiClassClassifier, 
         double depth_sum = 0.0;
         for (PhantomNode phantomLeaf : phantomLeaves) {
             depth_sum += phantomLeaf.depth;
+        }
+
+        if (phantomLeaves.size() == 0) {
+            return 0;
         }
 
         return depth_sum / phantomLeaves.size();

@@ -73,12 +73,14 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
 
     protected Classifier errorRegionClassifier;
     protected Classifier patchClassifier;
+    protected Classifier newClassifier;
 
     int patchCount;
     int classifierCount;
     int maxObsPeriodLen;
     int maxErrRegionStoreSize;
     int maxAprRegionStoreSize;
+    double switchToNewClassifierPos;
 
     protected Classifier emptyClassifier;
 
@@ -89,8 +91,10 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
     // track performances for both the patch learner and the transferred model
     protected ArrayDeque<Integer> patchErrorWindow;
     protected ArrayDeque<Integer> transErrorWindow;
+    protected ArrayDeque<Integer> newErrorWindow;
     protected double patchErrorWindowSum;
     protected double transErrorWindowSum;
+    protected double newErrorWindowSum;
 
     public boolean isRandomizable() { return true; }
 
@@ -100,6 +104,12 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             return this.classifier.getVotesForInstance(inst);
         }
 
+        // new classifier
+        if (switchToNewClassifier()) {
+            return this.newClassifier.getVotesForInstance(inst);
+        }
+
+        // patch on/off with transferred model
         Instance newInstance = inst.copy();
         newInstance.insertAttributeAt(0);
         newInstance.setValue(0, inst.classValue());
@@ -109,11 +119,24 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                 this.patchCount++;
                 return this.patchClassifier.getVotesForInstance(inst);
             }
-
         }
 
         this.classifierCount++;
         return this.classifier.getVotesForInstance(inst);
+    }
+
+    private boolean switchToNewClassifier() {
+        if (this.newErrorWindow.size() < this.perfWindowSizeOption.getValue()) {
+            return false;
+        }
+
+        if (this.newErrorWindowSum < this.patchErrorWindowSum
+                && this.newErrorWindowSum < this.transErrorWindowSum) {
+            this.switchToNewClassifierPos = this.trainingWeightSeenByModel();
+            return true;
+        }
+
+        return false;
     }
 
     private boolean turnOnPatchPrediction() {
@@ -151,6 +174,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         this.maxObsPeriodLen = 0;
         this.maxErrRegionStoreSize = 0;
         this.maxAprRegionStoreSize = 0;
+        this.switchToNewClassifierPos = 0;
 
         this.obsInstanceStoreComplexity = new InstanceStoreComplexity();
         this.errorInstanceStoreComplexity = new InstanceStoreComplexity();
@@ -159,8 +183,10 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
         // patch related
         this.patchErrorWindow = new ArrayDeque<>();
         this.transErrorWindow = new ArrayDeque<>();
+        this.newErrorWindow = new ArrayDeque<>();
         this.patchErrorWindowSum = 0;
         this.transErrorWindowSum = 0;
+        this.newErrorWindowSum = 0;
 
     }
 
@@ -184,7 +210,7 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             this.transErrorWindowSum += errorCount;
 
             // train patch
-            int patchErrorCount = 0;
+            int patchErrorCount = errorCount;
             if (errorCount == 1) {
                 // keep track of patch to either turn on/off patch prediction
                 if (!this.patchClassifier.correctlyClassifies(inst)) {
@@ -200,6 +226,17 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             }
             this.patchErrorWindow.offerLast(patchErrorCount);
             this.patchErrorWindowSum += patchErrorCount;
+
+
+            // train new classifier
+            int newErrorCount = this.newClassifier.correctlyClassifies(inst) ? 0 : 1;
+            this.newClassifier.trainOnInstance(inst);
+            // update new classifier performance
+            if (this.newErrorWindow.size() > this.perfWindowSizeOption.getValue()){
+                this.newErrorWindowSum -= this.newErrorWindow.pollFirst();
+            }
+            this.newErrorWindow.offerLast(newErrorCount);
+            this.newErrorWindowSum += newErrorCount;
 
         } else if (this.obsInstanceStore == null) {
             // either from source or a new model in target
@@ -240,9 +277,12 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
             if (enableTransfer) {
                 this.errorRegionClassifier = this.emptyClassifier.copy();
                 this.patchClassifier = this.emptyClassifier.copy();
+                this.newClassifier = this.emptyClassifier.copy();
 
                 for (int idx = 0; idx < this.obsInstanceStore.size(); idx++) {
                     Instance obsInstance = this.obsInstanceStore.get(idx);
+                    this.newClassifier.trainOnInstance(obsInstance);
+
                     Instance newInstance = obsInstance.copy();
                     newInstance.insertAttributeAt(0);
                     newInstance.setValue(0, obsInstance.classValue());
@@ -463,7 +503,9 @@ public class TransferFramework extends AbstractClassifier implements MultiClassC
                 new Measurement("patch count",
                         this.patchCount),
                 new Measurement("base classifier count",
-                        this.classifierCount)
+                        this.classifierCount),
+                new Measurement("switchToNewClassifierPos ",
+                        this.switchToNewClassifierPos)
         };
     }
 
