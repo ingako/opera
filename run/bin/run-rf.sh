@@ -86,17 +86,52 @@ done
 # 
 ###############################################################################
 
-DATADIR=/home/hwu344/intellij/phantom-tree/data/mnist-max-pooling
-OUTPUTDIR=/home/hwu344/intellij/phantom-tree/run/bin/mnist-max-pooling
+# DATADIR=/home/hwu344/intellij/phantom-tree/data/mnist-max-pooling
+# OUTPUTDIR=/home/hwu344/intellij/phantom-tree/run/bin/mnist-max-pooling
+
+DATADIR=/home/hwu344/intellij/phantom-tree/data/fashion-mnist-max-pooling
+OUTPUTDIR=/home/hwu344/intellij/phantom-tree/run/bin/fashion-mnist-max-pooling
 
 
 for dataset in flip01 flip01234 flip01234567 ; do
-input=${DATADIR}/${dataset}.arff
+for seed in {0..9} ; do
+# input=${DATADIR}/${dataset}.arff
 
-# enable patching
-output=${OUTPUTDIR}/enable-patch/rf
+# # enable patching
+# output=${OUTPUTDIR}/enable-patch/rf
+# mkdir -p $output
+# output=${output}/${dataset}.csv
+# > $output
+
+# nohup "$JCMD" \
+#   -classpath "$CLASSPATH" \
+#   -Xmx$MEMORY \
+#   -javaagent:"$REPO"/sizeofag-1.0.4.jar \
+#   $MAIN \
+# "EvaluatePrequential -l (transfer.TransferFramework -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -c 0.01 -t 0.1 -l MC) -a 1.0 -x (ADWINChangeDetector -a 0.001) -p (ADWINChangeDetector -a 0.01) -w -u -q) -d (ADWINChangeDetector -a 0.001) -t (PhantomTree -k 5 -n (GaussianNumericAttributeClassObserver -n 2) -g 50 -s (InfoGainSplitCriterion -f 0.1) -c 0.01 -b -l MC) -b 0.15 -f 70000) -s (ArffFileStream -f $input) -f 1000 -d $output" &
+# 
+# 
+# 
+# # disable patching
+# output=${OUTPUTDIR}/disable-patch/rf
+# mkdir -p $output
+# output=${output}/${dataset}.csv
+# > $output
+# 
+# nohup "$JCMD" \
+#   -classpath "$CLASSPATH" \
+#   -Xmx$MEMORY \
+#   -javaagent:"$REPO"/sizeofag-1.0.4.jar \
+#   $MAIN \
+# "EvaluatePrequential -l (transfer.TransferFramework -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -c 0.01 -t 0.1 -l MC) -a 1.0 -x (ADWINChangeDetector -a 0.001) -p (ADWINChangeDetector -a 0.01) -w -u -q) -d (ADWINChangeDetector -a 0.001) -t (PhantomTree -k 5 -n (GaussianNumericAttributeClassObserver -n 2) -g 50 -s (InfoGainSplitCriterion -f 0.1) -c 0.01 -b -l MC) -b 0.15 -x -f 70000) -s (ArffFileStream -f $input) -f 1000 -d $output" &
+
+
+input=${DATADIR}/${dataset}/${seed}.arff
+
+# transfer only
+output=${OUTPUTDIR}/transfer-only/rf/${dataset}/
 mkdir -p $output
-output=${output}/${dataset}.csv
+output=${output}/${seed}.csv
 > $output
 
 nohup "$JCMD" \
@@ -104,25 +139,15 @@ nohup "$JCMD" \
   -Xmx$MEMORY \
   -javaagent:"$REPO"/sizeofag-1.0.4.jar \
   $MAIN \
-"EvaluatePrequential -l (transfer.TransferFramework -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -k 24 -c 0.01 -t 0.1) -a 1.0 -x (ADWINChangeDetector -a 0.001) -p (ADWINChangeDetector -a 0.01) -w -u -q) -d (ADWINChangeDetector -a 0.001) -t (PhantomTree -k 5 -n (GaussianNumericAttributeClassObserver -n 2) -g 50 -s (InfoGainSplitCriterion -f 0.1) -c 0.01 -b -l MC) -b 0.15 -f 70000) -s (ArffFileStream -f $input) -f 1000 -d $output" &
+"EvaluatePrequential -l (transfer.TransferFramework -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -c 0.01 -t 0.1 -l MC) -a 1.0 -x (ADWINChangeDetector -a 0.001) -p (ADWINChangeDetector -a 0.01) -w -u -q) -d (ADWINChangeDetector -a 0.001) -t (PhantomTree -k 5 -n (GaussianNumericAttributeClassObserver -n 2) -g 50 -s (InfoGainSplitCriterion -f 0.1) -c 0.01 -b -l MC) -b 0.15 -e -f 70000) -s (ArffFileStream -f $input) -f 1000 -d $output" &
 
-# "EvaluatePrequential -l (transfer.TransferFramework -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -n (GaussianNumericAttributeClassObserver -n 2) -g 60 -c 0.01 -t 0.1) -a 1.0 -x (ADWINChangeDetector -a 0.001) -p (ADWINChangeDetector -a 0.01) -w -u -q) -d (ADWINChangeDetector -a 0.001) -t (PhantomTree -k 1 -n (GaussianNumericAttributeClassObserver -n 2) -g 50 -s (InfoGainSplitCriterion -f 0.1) -c 0.01 -t 0.1 -b -l MC) -b 0.1 -f 70000) -s (ArffFileStream -f $input) -f 1000 -d $output" &
+count=$(($count+1))
+if [ $(($count%16)) == 0 -a $count -ge 16 ] ; then
+    wait $PIDS
+    PIDS=""
+fi
 
 
 
-# disable patching
-output=${OUTPUTDIR}/disable-patch/rf
-mkdir -p $output
-output=${output}/${dataset}.csv
-> $output
-
-nohup "$JCMD" \
-  -classpath "$CLASSPATH" \
-  -Xmx$MEMORY \
-  -javaagent:"$REPO"/sizeofag-1.0.4.jar \
-  $MAIN \
-"EvaluatePrequential -l (transfer.TransferFramework -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -k 24 -c 0.01 -t 0.1) -a 1.0 -x (ADWINChangeDetector -a 0.001) -p (ADWINChangeDetector -a 0.01) -w -u -q) -d (ADWINChangeDetector -a 0.001) -t (PhantomTree -k 5 -n (GaussianNumericAttributeClassObserver -n 2) -g 50 -s (InfoGainSplitCriterion -f 0.1) -c 0.01 -b -l MC) -b 0.15 -x -f 70000) -s (ArffFileStream -f $input) -f 1000 -d $output" &
-
-# "EvaluatePrequential -l (transfer.TransferFramework -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -n (GaussianNumericAttributeClassObserver -n 2) -g 60 -c 0.01 -t 0.1) -a 1.0 -x (ADWINChangeDetector -a 0.001) -p (ADWINChangeDetector -a 0.01) -w -u -q) -d (ADWINChangeDetector -a 0.001) -t (PhantomTree -k 1 -n (GaussianNumericAttributeClassObserver -n 2) -g 50 -s (InfoGainSplitCriterion -f 0.1) -c 0.01 -t 0.1 -b -l MC) -b 0.1 -f 70000 -x) -s (ArffFileStream -f $input) -f 1000 -d $output" &
-
+done
 done
