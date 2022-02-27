@@ -90,7 +90,8 @@ DATADIR=/home/hwu344/intellij/phantom-tree/data/bike
 OUTPUTDIR=/home/hwu344/intellij/phantom-tree/run/bin/bike
 lambda=1
 min_obs=1000
-performance_window=1000
+# performance_window=1000 # 5014
+performance_window=5000 # 11865
 num_phantom_tree=5
 conv_rate=0.3
 
@@ -99,6 +100,20 @@ count=0
 
 drift_point=5014
 for dataset_prefix in "bike-5014" ; do
+# drift_point=11865
+# for dataset_prefix in "bike-11865" ; do
+
+# for dataset_prefix in "weekend/dc-weekend-source-0-5014" "weekend/dc-weekend-source-1-5014" ; do
+
+# drift_point=11865
+# for dataset_prefix in "weekend/dc-weekday-source-0-11865" "weekend/dc-weekday-source-1-11865" ; do
+
+# drift_point=11865
+# for dataset_prefix in "weekday/dc-weekday-source-0-11865" "weekday/dc-weekday-source-1-11865" ; do
+
+
+# drift_point=5014
+# for dataset_prefix in "weekday/dc-weekend-source-0-5014" "weekday/dc-weekend-source-1-5014" ; do
 
 
     #     for min_obs in 500 1000 3000  ; do

@@ -21,67 +21,78 @@ def setup_logger(name, log_file, level=logging.INFO):
   return logger
 
 
-num_sample = 60000
-seed = 42
+stable_period=50000
 delim = ','
-prune_percentage = 0.5
-prune_level=7
-
-max_tree_depths=[10]
-# min_leaf_depths=[1, 10, 20]
-min_leaf_depths=[10]
+prune_level=3
+num_branches_to_prune_list=[1, 2, 3]
+num_branches_to_prune_list=[1]
+max_tree_depth = 8
+min_leaf_depth = max_tree_depth
+# subtree_max_tree_depths = [6, 12, 18]
+subtree_max_tree_depths = [3]
 n_cat_features = 20
 n_categories_per_cat_feature= 2
 n_classes = 3
 
 
-for max_tree_depth in max_tree_depths:
-    for min_leaf_depth in min_leaf_depths:
+for seed in range(10):
+    for num_branches_to_prune in num_branches_to_prune_list:
+        for subtree_max_tree_depth in subtree_max_tree_depths:
 
-        header = []
+            header = []
 
-        for i in range(n_cat_features * n_categories_per_cat_feature):
-            header.append(f"@attribute a{i} {{0,1}}")
+            for i in range(n_cat_features * n_categories_per_cat_feature):
+                header.append(f"@attribute a{i} {{0,1}}")
 
-        header.append(f"@attribute class {{0,1,2}}")
-        header.append("@data\n")
+            class_str = ",".join([str(v) for v in range(n_classes)])
+            header.append(f"@attribute class {{{class_str}}}")
+            header.append("@data\n")
 
-        output_dir = \
-            f'../data/tree/{n_cat_features}/{max_tree_depth}/{prune_level}/{prune_percentage}/'
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        stable_period_logger = setup_logger(f'drift-{seed}', f'{output_dir}/drift-{seed}.log')
-        output_filename = f'{output_dir}/{seed}.arff'
+            output_dir = \
+                f'../data/tree/{subtree_max_tree_depth}/{num_branches_to_prune}'
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            stable_period_logger = setup_logger(f'drift-{seed}', f'{output_dir}/drift-{seed}.log')
+            output_filename = f'{output_dir}/{seed}.arff'
 
-        full_tree_stream = RandomTreeGenerator(
-                    tree_random_state=seed,
-                    n_classes=n_classes,
-                    n_cat_features=n_cat_features,
-                    n_num_features=0,
-                    n_categories_per_cat_feature=n_categories_per_cat_feature,
-                    max_tree_depth=max_tree_depth,
-                    min_leaf_depth=min_leaf_depth,
-                    fraction_leaves_per_level=0.15)
+            full_tree_stream = RandomTreeGenerator(
+                        tree_random_state=seed,
+                        sample_random_state=seed,
+                        n_classes=n_classes,
+                        n_cat_features=n_cat_features,
+                        n_num_features=0,
+                        n_categories_per_cat_feature=n_categories_per_cat_feature,
+                        max_tree_depth=max_tree_depth,
+                        min_leaf_depth=min_leaf_depth,
+                        fraction_leaves_per_level=0.15)
 
-        print(f'generating {output_filename}...')
-        full_tree_stream.get_depth_info()
+            print(f'generating {output_filename}...')
+            full_tree_stream.get_depth_info()
 
-        pruned_tree_stream = copy.deepcopy(full_tree_stream)
-        pruned_tree_stream.prune_subtrees(prune_level=prune_level, prune_percentage=prune_percentage)
+            pruned_tree_stream = copy.deepcopy(full_tree_stream)
+            pruned_tree_stream.max_tree_depth = subtree_max_tree_depth
+            pruned_tree_stream.min_leaf_depth = subtree_max_tree_depth
 
-        print("after prunning")
-        pruned_tree_stream.get_depth_info()
+            pruned_tree_stream.prune_subtrees(prune_level=prune_level,
+                                              num_branches_to_prune=num_branches_to_prune)
+
+            print("after prunning")
+            pruned_tree_stream.get_depth_info()
 
 
-        stream = RecurrentDriftStream(stable_period=30000,
-                                      position=30000,
-                                      stable_period_logger=stable_period_logger)
-        stream.prepare_for_use([pruned_tree_stream, full_tree_stream])
+            # stream = RecurrentDriftStream(stable_period=stable_period,
+            #                               position=stable_period,
+            #                               stable_period_logger=stable_period_logger)
+            # stream.prepare_for_use([full_tree_stream, pruned_tree_stream])
 
-        with open(output_filename, 'w') as out:
-            out.write('\n'.join(header))
-            for _ in range(num_sample):
-                X, y = stream.next_sample()
-
-                out.write(delim.join(str(int(v)) for v in X[0]))
-                out.write(f'{delim}{int(y[0])}')
-                out.write('\n')
+            with open(output_filename, 'w') as out:
+                out.write('\n'.join(header))
+                for _ in range(stable_period):
+                    X, y = full_tree_stream.next_sample()
+                    out.write(delim.join(str(int(v)) for v in X[0]))
+                    out.write(f'{delim}{int(y[0])}')
+                    out.write('\n')
+                for _ in range(stable_period):
+                    X, y = pruned_tree_stream.next_sample()
+                    out.write(delim.join(str(int(v)) for v in X[0]))
+                    out.write(f'{delim}{int(y[0])}')
+                    out.write('\n')

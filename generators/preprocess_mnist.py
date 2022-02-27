@@ -13,48 +13,16 @@ def is_unique(s):
     a = s.to_numpy()
     return (a[0] == a).all()
 
-# flip_digits = [0, 1]
+flip_digits = [0, 1]
 # flip_digits = [0, 1, 2, 3, 4]
-flip_digits = [0, 1, 2, 3, 4, 5, 6, 7]
+# flip_digits = [0, 1, 2, 3, 4, 5, 6, 7]
 
-data_name = sys.argv[1] # mnist, fashion-mnist
+# data_name = sys.argv[1] # mnist, fashion-mnist
+data_name = "mnist"
 
 df = pd.read_csv(f"../data/{data_name}/{data_name}.csv", header=0)
 
-# print(df.head())
-n_row, n_col = df.shape
-print(f"row={n_row}, col={n_col}")
-
-df_values = df.values
-
-# max pooling
-# 28*28 784
-max_pool_values = []
-for r in range(0, len(df_values)):
-    max_pool_row = [df_values[r][0]] # label
-    for i in range(1, n_col):
-        if i % (28*2) != 1:
-            continue
-
-        for j in range(i, i + 28, 2):
-            max_pool_row.append(max(df_values[r][j], df_values[r][j+1], df_values[r][j+28], df_values[r][j+29]))
-    max_pool_values.append(max_pool_row)
-n_col = len(max_pool_values[0])
-col_names = [v for v in range(n_col)]
-col_names[0] = "label"
-df = pd.DataFrame(max_pool_values, columns=col_names)
-
-
-# remove useless attributes
-df_new = pd.DataFrame(df.iloc[:,0])
-count = 1
-for i in range(1, n_col):
-    if not is_unique(df.iloc[:,i]):
-        df_new.insert(count, str(i), df.iloc[:,i])
-        count += 1
-
 ## 
-df = df_new
 df_orig = df.copy()
 df_orig = df_orig.sample(frac=1, random_state=0) # shuffle
 
@@ -79,8 +47,9 @@ df = df_orig.append(df, ignore_index=True)
 label_col = df.iloc[:,0].copy()
 df = df.drop("label", 1)
 df.insert(n_col-1, "label", label_col)
+print(f"num_classes: {label_col.nunique()}")
 
-output_dir = f'../data/{data_name}-max-pooling/'
+output_dir = f'../data/{data_name}/'
 Path(output_dir).mkdir(parents=True, exist_ok=True)
 output_filename = f'{output_dir}/flip{"".join([str(d) for d in flip_digits])}.arff'
 df.to_csv(output_filename, sep=',', header=False, index=False)

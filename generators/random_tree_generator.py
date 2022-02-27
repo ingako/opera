@@ -145,9 +145,55 @@ class RandomTreeGenerator(Stream):
         self._prepare_for_use()
 
     def get_depth_info(self):
+        self.min_depth = sys.maxsize
+        self.max_depth = 0
+        self.sum_depth = 0
+        self.leaf_count = 0
+
+        self._update_depth_info(self.tree_root, 1)
+
         print(f"min_depth={self.min_depth}")
         print(f"max_depth={self.max_depth}")
         print(f"avg_depth={self.sum_depth / self.leaf_count}")
+
+    def _update_depth_info(self, node, current_depth):
+        if node == None:
+            return
+        if len(node.children) == 0:
+            self.min_depth = min(self.min_depth, current_depth)
+            self.max_depth = max(self.max_depth, current_depth)
+            self.sum_depth += current_depth
+            self.leaf_count += 1
+            return
+        for child in node.children:
+            self._update_depth_info(child, current_depth + 1)
+
+    def prune_subtrees(self, prune_level, num_branches_to_prune):
+        if num_branches_to_prune == 0:
+            return
+
+        print(f"pruning {num_branches_to_prune} branches...")
+        self._prune_subtrees(self.tree_root, prune_level, num_branches_to_prune,
+                             self._random_state, 1)
+
+    def _prune_subtrees(self, node, prune_level, num_branches_to_prune, random_state,
+                       current_level):
+        if current_level == prune_level:
+            leaf = self._generate_random_subtree(prune_level)
+            return leaf, 1
+
+        num_pruned = 0
+        new_children = []
+        for child in node.children:
+            if num_pruned >= num_branches_to_prune:
+                new_children.append(child)
+            else:
+                new_child, num_children_pruned = self._prune_subtrees(child, prune_level, num_branches_to_prune, random_state, current_level + 1)
+                new_children.append(new_child)
+                num_pruned += num_children_pruned
+
+        node.children = new_children
+        return node, num_pruned
 
     def _prepare_for_use(self):
         self._sample_random_state = check_random_state(self.sample_random_state)
@@ -179,6 +225,26 @@ class RandomTreeGenerator(Stream):
         self.tree_root = self._generate_random_tree_node(0, nominal_att_candidates,
                                                          min_numeric_value, max_numeric_value,
                                                          tree_random_state)
+    def _generate_random_subtree(self, current_depth=0):
+        # Starting random generators and parameter arrays
+        tree_random_state = check_random_state(self.tree_random_state)
+        nominal_att_candidates = array('i')
+        min_numeric_value = array('d')
+        max_numeric_value = array('d')
+
+        for i in range(self.n_num_features):
+            min_numeric_value.append(0.0)
+            max_numeric_value.append(1.0)
+
+        for i in range(self.n_num_features + self.n_cat_features):
+            nominal_att_candidates.append(i)
+
+        return self._generate_random_tree_node(current_depth, nominal_att_candidates,
+                                                         min_numeric_value, max_numeric_value,
+                                                         tree_random_state)
+
+
+
 
     def _generate_random_tree_node(self, current_depth, nominal_att_candidates, min_numeric_value,
                                    max_numeric_value, random_state):
@@ -229,11 +295,6 @@ class RandomTreeGenerator(Stream):
         """
         if (current_depth >= self.max_tree_depth) or ((current_depth >= self.min_leaf_depth) and (
                 self.fraction_leaves_per_level >= (1.0 - random_state.rand()))):
-
-            self.min_depth = min(self.min_depth, current_depth)
-            self.max_depth = max(self.max_depth, current_depth)
-            self.sum_depth += current_depth
-            self.leaf_count += 1
 
             leaf = Node()
             leaf.class_label = random_state.randint(0, self.n_classes)

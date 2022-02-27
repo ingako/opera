@@ -43,22 +43,24 @@ data = []
 with open(data_filename, "r") as f:
     data = f.readlines()
 
+print("chunk sizes")
 prev = 0
 chunks = []
 for loc in xnew[locs]:
     loc = int(loc)
     chunks.append(data[prev:loc])
-    print(f"{prev}:{loc}")
+    # print(f"{prev}:{loc}")
+    print(loc-prev)
     prev = loc
 
-for i in range(len(chunks)-1):
-    for j in range(i+1, len(chunks)):
-        chunk = header.copy()
-        chunk.extend(chunks[i])
-        chunk.extend(chunks[j])
-
-        drift_loc = len(chunks[i])
-        output_filename = f"covtype-{i}-{j}-{drift_loc}.arff"
-        print(output_filename)
-        with open(output_filename, "w") as f:
-            f.write("".join(chunk))
+# for i in range(len(chunks)-1):
+#     for j in range(i+1, len(chunks)):
+#         chunk = header.copy()
+#         chunk.extend(chunks[i])
+#         chunk.extend(chunks[j])
+# 
+#         drift_loc = len(chunks[i])
+#         output_filename = f"covtype-{i}-{j}-{drift_loc}.arff"
+#         print(output_filename)
+#         with open(output_filename, "w") as f:
+#             f.write("".join(chunk))
